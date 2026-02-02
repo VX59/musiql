@@ -23,7 +23,7 @@ def upgrade() -> None:
         "music_repository",
         sa.Column("uri", sa.String, primary_key=True),
         sa.Column("title", sa.String, nullable=False),
-        sa.Column("artists", postgresql.JSONB, nullable=False),
+        sa.Column("artists", sa.String, nullable=False),
         sa.Column("filepath", sa.String, nullable=False),
         sa.Column("hash", sa.LargeBinary, nullable=False),
         sa.Column("mime", sa.String, nullable=False),

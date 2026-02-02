@@ -11,7 +11,7 @@ class MusiqlRepository(Base):
 
     uri : Mapped[str] = mapped_column(primary_key=True)
     title : Mapped[str] = mapped_column(nullable=False)
-    artists : Mapped[dict] = mapped_column(postgresql.JSONB(astext_type=sa.TEXT), nullable=False)
+    artists : Mapped[str] = mapped_column(nullable=False)
     filepath : Mapped[str] = mapped_column(nullable=False)
     hash : Mapped[bytes] = mapped_column(nullable=False)
     mime : Mapped[str] = mapped_column(nullable=False)

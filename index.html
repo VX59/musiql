@@ -5,18 +5,44 @@
 </head>
 <body>
     <h1>Musiql Player</h1>
-
-    <input type="text" id="term" placeholder="Search term">
-    <button onclick="play()">Play</button>
-    <audio id="player" controls></audio>
-    <button onclick="skip()">Skip</button>    
+    <div>
+        <input type="text" id="term" placeholder="Search term">
+        <button onclick="play()">Search & Play</button>
+    </div>
+    <div>
+        <h4 id="title"></h5>
+        <h5 id="artist"></h5>
+        <div>
+            <audio id="player" controls></audio>
+            <button id="skip" onclick="skip()">Skip</button>
+        </div>
+    </div>
     <div>
         <input type="text" id="uploader" placeholder="Paste Youtube link here">
         <button onclick="upload_resource()">Add Resource</button>
     </div>
 
     <script>
-        let current_hist_id = null
+        let current_hist_id = 0
+        
+        const player = document.getElementById("player");
+        const skipButton = document.getElementById("skip");
+
+        const titleBar = document.getElementById("title");
+        const artistBar = document.getElementById("artist")
+
+        function updateSkipButton() {
+            const src = player.getAttribute("src");
+            skipButton.disabled = (!src || src == "about:blank");
+        }
+
+        updateSkipButton();
+
+        new MutationObserver(updateSkipButton).observe(player, {
+            attributes: true,
+            attributeFilter: ["src"]
+        });
+
         async function skip() {
             try {
                 const response = await fetch("http://localhost:8000/musiql/sample/", {
@@ -27,10 +53,15 @@
                     alert("Error: ", response.status);
                     return;
                 }
-                const player = document.getElementById("player");
+
+                const jsonBody = await response.json()
+
+                titleBar.textContent = jsonBody.title;
+                artistBar.textContent = jsonBody.artists;
+                const uri = jsonBody.uri
 
                 const progress = player.currentTime/player.duration
-                const skip_response = await fetch("http://localhost:8000/musiql/skip/", {
+                const skip_response = await fetch("http://localhost:8000/musiql/log/engagement/", {
                     method : "POST",
                     headers: {
                         "Content-Type": "application/json"
@@ -42,10 +73,19 @@
                     alert("Error: ", skip_response.status);
                     return;
                 }
-
-                current_hist_id = response.headers.get("X-History-ID")
                 
-                const blob = await response.blob();
+                const media_response = await fetch(`http://localhost:8000/musiql/serve/${encodeURIComponent(uri)}`, {
+                    method: "GET",
+                });
+                
+                if (!media_response.ok) {
+                    alert("Error: " + response.status);
+                    return;
+                }
+
+                current_hist_id = media_response.headers.get("X-history-id");
+
+                const blob = await media_response.blob();
 
                 if (player.oldSrc) URL.revokeObjectURL(player.oldSrc);
                 player.oldSrc = URL.createObjectURL(blob);
@@ -67,7 +107,7 @@
             });
 
             if (!response.ok) {
-                alert("Error: " + response.status);
+                alert("Error: " + response.body);
                 return;
             } else {
                 document.getElementById("uploader").value = null;
@@ -78,11 +118,16 @@
         async function play() {
             const term = document.getElementById('term').value;
             const player = document.getElementById('player');
+            
+            let progress = 1.0
+            if (current_hist_id > 0) {
+                progress = player.currentTime/player.duration
+            }
 
             const response = await fetch("http://localhost:8000/musiql/search/", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({search_term: term})
+                body: JSON.stringify({history_id: current_hist_id, search_term: term, duration_played: progress})
             });
 
             
@@ -90,12 +135,28 @@
                 alert("Error: " + response.status);
                 return;
             }
+            
+            const jsonBody = await response.json()
 
-            // add duration tracking here
+            titleBar.textContent = jsonBody.title;
+            artistBar.textContent = jsonBody.artists;
+            const uri = jsonBody.uri
 
-            current_hist_id = response.headers.get("X-History-ID")
+            document.getElementById("term").value = null;
+            console.log(`search found a hit ${titleBar.textContent}`);
 
-            let blob = await response.blob();
+            const media_response = await fetch(`http://localhost:8000/musiql/serve/${encodeURIComponent(uri)}`, {
+                method: "GET",
+            });
+            
+            if (!media_response.ok) {
+                alert("Error: " + response.status);
+                return;
+            }
+
+            current_hist_id = media_response.headers.get("X-history-id");
+
+            let blob = await media_response.blob();
             let oldSrc = null;
 
             function playBlob(newBlob) {
@@ -117,8 +178,25 @@
                         alert("Error: " + response.status);
                         return;
                     }
-                    current_hist_id = response.headers.get("X-History-ID");
-                    const newBlob = await response.blob();
+                    
+                    const jsonBody = await response.json()
+
+                    titleBar.textContent = jsonBody.title;
+                    artistBar.textContent = jsonBody.artists;
+                    const uri = jsonBody.uri
+
+                    const media_response = await fetch(`http://localhost:8000/musiql/serve/${encodeURIComponent(uri)}`, {
+                        method: "GET",
+                    });
+                    
+                    if (!media_response.ok) {
+                        alert("Error: " + response.status);
+                        return;
+                    }
+
+                    current_hist_id = media_response.headers.get("x-history-id");
+
+                    const newBlob = await media_response.blob();
                     playBlob(newBlob);
 
                 } catch (err) {

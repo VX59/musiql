@@ -6,11 +6,12 @@ from models import MusiqlRepository, MusiqlHistory
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 import os
-from sqlalchemy import text, func, update
+from sqlalchemy import func, update, exists
 from sqlalchemy.future import select
 import hashlib
 import secrets
 import os
+from aioconsole import ainput
 from datetime import datetime, timezone
 
 router = APIRouter()
@@ -19,13 +20,22 @@ class MusiqlPayload(BaseModel):
     url: HttpUrl
 
 class SearchPayload(BaseModel):
+    history_id: int
     search_term: str
+    duration_played: float
 
 class SkipPayload(BaseModel):
     history_id: int
     duration_played: float
 
-def download_resource(url:HttpUrl) -> tuple[str, str, str]:
+async def verify_artist_name(name: str) -> bool:
+    stmt = select(exists().where(MusiqlRepository.artists.ilike(f"%{name}%")))
+
+    async with async_session() as session:
+        result = await session.execute(stmt)
+        return result.scalar()
+
+async def download_resource(url:HttpUrl) -> tuple[str, str, str]:
     
     ext = "mp3"
     outdir = "../musiql/music_dump"
@@ -38,6 +48,18 @@ def download_resource(url:HttpUrl) -> tuple[str, str, str]:
     uri = make_filename()
     outtmpl = os.path.join(outdir, uri)
 
+    ydl_checking_opts = {
+        'extract_flat': 'in_playlist',
+        'skip_download': True,
+    }
+
+    with YoutubeDL(ydl_checking_opts) as ydl: 
+        try:
+            info = ydl.extract_info(str(url), download=False)
+        except DownloadError as e:
+            print(f"media unavailable {url}")
+            return upload_data
+
     ydl_opts = {
         'outtmpl': outtmpl,
         'format': 'bestaudio/best',
@@ -46,39 +68,36 @@ def download_resource(url:HttpUrl) -> tuple[str, str, str]:
             'preferredcodec': ext,
             'preferredquality': '192',
         }],
-        'noplaylist' : False
+        'noplaylist' : True
     }
 
-    with YoutubeDL(ydl_opts) as ydl: 
-        try:
-            info = ydl.extract_info(str(url), download=False)
-        except DownloadError as e:
-            print(f"media unavailable {url}")
-            return upload_data
-
-
+    entries = []
     if info.get('_type') == 'playlist':
-        for entry in info['entries']:
-            url = entry['webpage_url']
-            uri = make_filename()
-            outtmpl = os.path.join(outdir, uri)
-
-            ydl_opts['outtmpl'] = outtmpl
-
-            with YoutubeDL(ydl_opts) as ydl:
-                try:
-                    info = ydl.extract_info(str(url))
-                except DownloadError as e:
-                    continue
-
-            filepath = os.path.join(outdir, f"{uri}.{ext}")
-            upload_data.append((filepath, uri, entry))
+        entries = info['entries']
     else:
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(str(url))
+        entries = [info]
 
-        filepath = os.path.join(outdir, f"{uri}.{ext}")
-        upload_data.append((filepath, uri, info))
+    for entry in entries:
+        url = entry.get('webpage_url') or f"https://www.youtube.com/watch?v={entry['id']}"
+        uri = make_filename()
+        outtmpl = os.path.join(outdir, uri)
+
+        ydl_opts['outtmpl'] = outtmpl
+
+        with YoutubeDL(ydl_opts) as ydl:
+            try:
+                info = ydl.extract_info(str(url))
+                uploader = info.get("uploader")
+                if not await verify_artist_name(uploader):
+                    answer = await ainput(f"New artist found [{uploader}], confirm name? ")
+                    if answer.strip():
+                        info["uploader"] = answer.strip()
+
+                filepath = os.path.join(outdir, f"{uri}.{ext}")
+                upload_data.append((filepath, uri, info))
+
+            except DownloadError as e:
+                continue
 
     return upload_data
 
@@ -92,10 +111,26 @@ async def resource_exists(hash: bytes):
         if record is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="attempting to upload duplicate record")
 
+@router.get("/musiql/serve/{uri}")
+async def serve_record(uri: str):
+
+    stmt = select(MusiqlRepository).where(MusiqlRepository.uri == uri)
+    async with async_session() as session:
+        result = await session.execute(stmt)
+        record = result.scalars().first()
+        
+        if record is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="record not found")
+        
+        filename = record.filepath.split("/")[-1]
+        history_id = await track_history(record.uri, session)
+
+        return FileResponse(path=record.filepath, media_type=record.mime, filename=filename,  headers={"Cache-Control": "no-store", "X-history-id": str(history_id)})
+
 @router.post("/musiql/", response_model=None)
 async def receive_music(payload: MusiqlPayload):
 
-    for path, uri, info in download_resource(payload.url):
+    for path, uri, info in await download_resource(payload.url):
         with open(path, "rb") as reader:
             hash = hashlib.sha256(reader.read()).digest()
             reader.close()
@@ -130,26 +165,30 @@ async def select_song(search_term):
         if record is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="record not found")
 
-        history_id = await track_history(record.uri, session)
-    return record, history_id
+    return record
 
 @router.post("/musiql/search/", response_model=None)
-async def search_song(payload: SearchPayload = None, search_term: str = None):
+async def search_song(payload: SearchPayload = None):
 
-    term = payload.search_term if not payload is None else search_term
+    if payload.history_id > 0:
+        await update_duration(payload.history_id,payload.duration_played)
 
-    record, history_id = await select_song(term)
+    record = await select_song(payload.search_term)
+    response={
+        "uri": record.uri,
+        "title": record.title,
+        "artists": record.artists
+    }
 
-    filename = record.filepath.split("/")[-1]
-    return FileResponse(path=record.filepath, media_type=record.mime, filename=filename,  headers={"Cache-Control": "no-store", "X-History-ID": str(history_id)})
+    return response
 
 @router.get("/musiql/player/")
 async def serve_player():
     html_path = "./index.html"
     return FileResponse(path=html_path, media_type="text/html")
 
-@router.post("/musiql/skip/")
-async def skip_song(skip_payload: SkipPayload):
+@router.post("/musiql/log/engagement/")
+async def log_engagement(skip_payload: SkipPayload):
     await update_duration(skip_payload.history_id, skip_payload.duration_played)
     return {"status" : "ok"}
 
@@ -163,14 +202,18 @@ async def sample_song():
         if not sample_record:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no record found")
         
-        history_id = await track_history(sample_record.uri, session)
+        response={
+            "uri": sample_record.uri,
+            "title": sample_record.title,
+            "artists": sample_record.artists
+        }
 
-        return FileResponse(path=sample_record.filepath, media_type=sample_record.mime, filename=sample_record.filepath.split("/")[-1], headers={"Cache-Control": "no-store", "X-History-ID": str(history_id)})
+        return response
     
 async def track_history(uri: str, session):
     new_record = MusiqlHistory(
         uri= uri,
-        duration_played= 1.0, # update later when player presses a skip button,
+        duration_played= 1.0,
         listened_at = datetime.now(timezone.utc)
     )
     

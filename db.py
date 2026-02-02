@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 config = ConfigParser()
 config.read("alembic.ini")
 
-DATABASE_URL = config["alembic"]["sqlalchemy.url"]
+DATABASE_URL = "postgresql+asyncpg://jacob:password@localhost:5432/musiql"
 
 engine = create_async_engine(DATABASE_URL, echo=True)
 
