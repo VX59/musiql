@@ -77,21 +77,29 @@ async def download_resource(url:HttpUrl) -> tuple[str, str, str]:
     else:
         entries = [info]
 
+    discovered_artists_cache = []
     for entry in entries:
         url = entry.get('webpage_url') or f"https://www.youtube.com/watch?v={entry['id']}"
         uri = make_filename()
         outtmpl = os.path.join(outdir, uri)
 
         ydl_opts['outtmpl'] = outtmpl
-
         with YoutubeDL(ydl_opts) as ydl:
             try:
                 info = ydl.extract_info(str(url))
                 uploader = info.get("uploader")
                 if not await verify_artist_name(uploader):
-                    answer = await ainput(f"New artist found [{uploader}], confirm name? ")
-                    if answer.strip():
-                        info["uploader"] = answer.strip()
+                    if uploader not in discovered_artists_cache:
+                        print(discovered_artists_cache)
+                        answer = await ainput(f"New artist found [{uploader}], confirm name? ")
+                        answer = answer.strip()
+                        if answer.strip():
+                            info["uploader"] = answer.strip()
+                            if answer not in discovered_artists_cache:
+                                discovered_artists_cache.append(answer)
+                        else:
+                            if uploader not in discovered_artists_cache:                            
+                                discovered_artists_cache.append(uploader)
 
                 filepath = os.path.join(outdir, f"{uri}.{ext}")
                 upload_data.append((filepath, uri, info))
