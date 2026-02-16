@@ -192,7 +192,7 @@ async def search_song(payload: SearchPayload = None):
 
 @router.get("/musiql/player/")
 async def serve_player():
-    html_path = "./index.html"
+    html_path = "./musiql-desktop/index.html"
     return FileResponse(path=html_path, media_type="text/html")
 
 @router.post("/musiql/log/engagement/")
