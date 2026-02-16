@@ -1,0 +1,3 @@
+[submodule "recommendation-models"]
+	path = recommendation-models
+	url = ./recommendation-models
