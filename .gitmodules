@@ -1,3 +1,6 @@
 [submodule "recommendation-models"]
 	path = recommendation-models
 	url = git@github.com:VX59/recommendation-models.git
+[submodule "musiql-desktop"]
+	path = musiql-desktop
+	url = git@github.com:VX59/musiql-desktop.git
