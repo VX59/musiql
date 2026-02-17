@@ -29,6 +29,7 @@ def upgrade() -> None:
         sa.Column("mime", sa.String, nullable=False),
         sa.Column("metadata_json", postgresql.JSONB, nullable=False),
         sa.Column("created", sa.DateTime, nullable=False),
+        sa.Column("index", sa.Integer, nullable=False),
     )
 
 def downgrade() -> None:

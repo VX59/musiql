@@ -17,6 +17,7 @@ class MusiqlRepository(Base):
     mime : Mapped[str] = mapped_column(nullable=False)
     metadata_json : Mapped[dict] = mapped_column(postgresql.JSONB(astext_type=sa.TEXT), nullable=False)
     created : Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), default=datetime.now(timezone.utc), nullable=False)
+    index : Mapped[int] = mapped_column(nullable=False)
     
 class MusiqlHistory(Base):
     __tablename__="music_history"
