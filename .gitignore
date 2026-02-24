@@ -7,3 +7,5 @@
 /musiql
 /music_dump
 /musiql-desktop/node_modules
+*.png
+*.pyc
