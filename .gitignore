@@ -1,11 +1,13 @@
-/__pycache__
-/migrations/__pycache__
-/musiql_api/__pycache__
+/__pycache__/
+/migrations/__pycache__/
+/maintenance/__pycache__/
+/musiql_api/__pycache__/
 /migrations/script.py.mako
-/migrations/versions/__pycache__
+/migrations/versions/__pycache__/
 /.vscode
 /musiql
 /music_dump
 /musiql-desktop/node_modules
 *.png
 *.pyc
+alembic.ini
