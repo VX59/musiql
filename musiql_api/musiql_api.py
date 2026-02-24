@@ -13,8 +13,11 @@ import secrets
 import os
 from aioconsole import ainput
 from datetime import datetime, timezone
+from .GraphAMP import GraphAMP
 
 router = APIRouter()
+
+recommendation_model = GraphAMP()
 
 class MusiqlPayload(BaseModel):
     url: HttpUrl
@@ -202,7 +205,9 @@ async def log_engagement(skip_payload: SkipPayload):
 
 @router.get("/musiql/sample/")
 async def sample_song():
-    stmt = select(MusiqlRepository).order_by(func.random()).limit(1)
+
+    await recommendation_model.sample()
+    stmt = select(MusiqlRepository).where(MusiqlRepository.uri == recommendation_model.model_state)
 
     async with async_session() as session:
         result = await session.execute(stmt)
