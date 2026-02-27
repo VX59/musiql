@@ -6,7 +6,7 @@ from models import MusiqlRepository, MusiqlHistory
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 import os
-from sqlalchemy import func, update, exists
+from sqlalchemy import func, update, exists, or_
 from sqlalchemy.future import select
 import hashlib
 import secrets
@@ -22,7 +22,7 @@ recommendation_model = GraphAMP()
 class MusiqlPayload(BaseModel):
     url: HttpUrl
 
-class SearchPayload(BaseModel):
+class AdvancedSearchPayload(BaseModel):
     history_id: int
     search_term: str
     duration_played: float
@@ -178,17 +178,32 @@ async def select_song(search_term):
 
     return record
 
-@router.post("/musiql/search/", response_model=None)
-async def search_song(payload: SearchPayload = None):
+@router.post("/musiql/search/advanced", response_model=None)
+async def advanced_search_songs(payload: AdvancedSearchPayload = None):
+    stmt = (
+        select(MusiqlRepository)
+        .where(
+            or_(
+                MusiqlRepository.title.ilike(f"%{payload.search_term}%"),
+                MusiqlRepository.artists.ilike(f"%{payload.search_term}%")
+            )
+        )
+    )
 
-    if payload.history_id > 0:
+    async with async_session() as session:
+        result = await session.execute(stmt)
+        records = result.scalars().all()
+
+        if records is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no records found")
+
+
+    if len(records) == 1 and payload.history_id > 0:
         await update_duration(payload.history_id,payload.duration_played)
 
-    record = await select_song(payload.search_term)
     response={
-        "uri": record.uri,
-        "title": record.title,
-        "artists": record.artists
+        "num_results": len(records),
+        "results":[{"uri":r.uri, "title":r.title, "artists":r.artists} for r in records]
     }
 
     return response
