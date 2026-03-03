@@ -6,7 +6,7 @@ from models import MusiqlRepository, MusiqlHistory
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 import os
-from sqlalchemy import func, update, exists, or_
+from sqlalchemy import update, exists, or_
 from sqlalchemy.future import select
 import hashlib
 import secrets
