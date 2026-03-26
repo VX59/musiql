@@ -66,11 +66,17 @@ async def download_resource(url:HttpUrl) -> tuple[str, str, str]:
     ydl_opts = {
         'outtmpl': outtmpl,
         'format': 'bestaudio/best',
-        'postprocessors': [{
+        'writethumbnail': True,
+        'postprocessors': [
+            {
             'key': 'FFmpegExtractAudio',
             'preferredcodec': ext,
             'preferredquality': '192',
-        }],
+            },
+            {
+                'key': 'EmbedThumbnail',
+            }
+        ],
         'noplaylist' : True
     }
 
@@ -238,7 +244,7 @@ async def sample_song():
         sample_record = result.scalars().first()
         if not sample_record:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no record found")
-        
+
         response={
             "uri": sample_record.uri,
             "title": sample_record.title,
