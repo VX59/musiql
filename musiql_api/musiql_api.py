@@ -1,8 +1,8 @@
 from pydantic import BaseModel, HttpUrl
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
-from db import async_session
-from models import MusiqlRepository, MusiqlHistory
+from musiql_api.db import async_session
+from musiql_api.models import MusiqlRepository, MusiqlHistory
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 import os
@@ -41,7 +41,7 @@ async def verify_artist_name(name: str) -> bool:
 async def download_resource(url:HttpUrl) -> tuple[str, str, str]:
     
     ext = "mp3"
-    outdir = "../musiql/music_dump"
+    outdir = "music_dump"
     upload_data:list[tuple[str,str, dict]] = []
 
     def make_filename():

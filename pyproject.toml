@@ -1,0 +1,26 @@
+[project]
+name = "musiql"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.10"
+dependencies = [
+    "aioconsole>=0.8.2",
+    "asyncpg>=0.31.0",
+    "fastapi>=0.135.2",
+    "joblib>=1.5.3",
+    "networkx>=3.4.2",
+    "numpy>=2.2.6",
+    "sqlalchemy>=2.0.48",
+    "uvicorn>=0.42.0",
+    "yt-dlp>=2026.3.17",
+]
+
+[project.scripts]
+musiql = "musiql.server:main"
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["musiql*"]
