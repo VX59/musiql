@@ -8,3 +8,4 @@
 .venv
 alembic.ini
 updates.log
+musiql.egg-info
