@@ -1,6 +1,6 @@
 from pydantic import BaseModel, HttpUrl
 from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from musiql_api.db import async_session
 from musiql_api.models import MusiqlRepository, MusiqlHistory
 from yt_dlp import YoutubeDL
@@ -208,10 +208,19 @@ async def advanced_search_songs(payload: AdvancedSearchPayload = None):
 
     return response
 
-@router.get("/musiql/player/")
+
+@router.get("/musiql/player/", response_class=HTMLResponse)
 async def serve_player():
     html_path = "./musiql-desktop/index.html"
-    return FileResponse(path=html_path, media_type="text/html")
+    api_url = os.environ.get("API_URL", "http://localhost:8000")  # fallback for dev
+
+    # Read the HTML and inject the API URL
+    with open(html_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    html_content = html_content.replace("{{API_URL}}", api_url)
+
+    return HTMLResponse(content=html_content, media_type="text/html")
 
 @router.post("/musiql/log/engagement/")
 async def log_engagement(skip_payload: SkipPayload):
