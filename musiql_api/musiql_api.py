@@ -1,12 +1,14 @@
 from pydantic import BaseModel, HttpUrl
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
+from musiql_api.settings import Settings, get_settings
+from musiql_api.db import get_session
 from fastapi.responses import HTMLResponse, FileResponse
-from musiql_api.db import async_session
 from musiql_api.models import MusiqlRepository, MusiqlHistory
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 import os
 from sqlalchemy import update, exists, or_
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 import hashlib
 import secrets
@@ -31,7 +33,7 @@ class SkipPayload(BaseModel):
     history_id: int
     duration_played: float
 
-async def verify_artist_name(name: str) -> bool:
+async def verify_artist_name(name: str, async_session:AsyncSession = Depends(get_session)) -> bool:
     stmt = select(exists().where(MusiqlRepository.artists.ilike(f"%{name}%")))
 
     async with async_session() as session:
@@ -118,7 +120,7 @@ async def download_resource(url:HttpUrl) -> tuple[str, str, str]:
 
     return upload_data
 
-async def resource_exists(hash: bytes):
+async def resource_exists(hash: bytes, async_session:AsyncSession = Depends(get_session)):
     stmt = select(MusiqlRepository).where(MusiqlRepository.hash == hash)
 
     async with async_session() as session:
@@ -129,7 +131,7 @@ async def resource_exists(hash: bytes):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="attempting to upload duplicate record")
 
 @router.get("/musiql/serve/{uri}")
-async def serve_record(uri: str):
+async def serve_record(uri: str, async_session:AsyncSession = Depends(get_session)):
 
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == uri)
     async with async_session() as session:
@@ -145,7 +147,7 @@ async def serve_record(uri: str):
         return FileResponse(path=record.filepath, media_type=record.mime, filename=filename,  headers={"Cache-Control": "no-store", "X-history-id": str(history_id)})
 
 @router.post("/musiql/", response_model=None)
-async def receive_music(payload: MusiqlPayload):
+async def receive_music(payload: MusiqlPayload, async_session:AsyncSession = Depends(get_session)):
 
     for path, uri, info in await download_resource(payload.url):
         with open(path, "rb") as reader:
@@ -171,7 +173,7 @@ async def receive_music(payload: MusiqlPayload):
 
     return {"status": "ok"}
 
-async def select_song(search_term):
+async def select_song(search_term, async_session:AsyncSession = Depends(get_session)):
     
     stmt = select(MusiqlRepository).where(MusiqlRepository.title.ilike(f"%{search_term}%"))
 
@@ -185,7 +187,7 @@ async def select_song(search_term):
     return record
 
 @router.post("/musiql/search/advanced", response_model=None)
-async def advanced_search_songs(payload: AdvancedSearchPayload = None):
+async def advanced_search_songs(payload: AdvancedSearchPayload = None, async_session:AsyncSession = Depends(get_session)):
     stmt = (
         select(MusiqlRepository)
         .where(
@@ -216,15 +218,14 @@ async def advanced_search_songs(payload: AdvancedSearchPayload = None):
 
 
 @router.get("/musiql/player/", response_class=HTMLResponse)
-async def serve_player():
+async def serve_player(settings: Settings = Depends(get_settings)):
     html_path = "./musiql-desktop/index.html"
-    api_url = os.environ.get("API_URL", "http://localhost:8000")  # fallback for dev
 
     # Read the HTML and inject the API URL
     with open(html_path, "r", encoding="utf-8") as f:
         html_content = f.read()
 
-    html_content = html_content.replace("{{API_URL}}", api_url)
+    html_content = html_content.replace("{{API_URL}}", settings.api_url)
 
     return HTMLResponse(content=html_content, media_type="text/html")
 
@@ -234,7 +235,7 @@ async def log_engagement(skip_payload: SkipPayload):
     return {"status" : "ok"}
 
 @router.get("/musiql/sample/")
-async def sample_song():
+async def sample_song(async_session:AsyncSession = Depends(get_session)):
 
     await recommendation_model.sample()
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == recommendation_model.model_state)
@@ -265,7 +266,7 @@ async def track_history(uri: str, session):
 
     return new_record.id
 
-async def update_duration(history_id: int, duration: float):
+async def update_duration(history_id: int, duration: float, async_session:AsyncSession = Depends(get_session)):
     stmt = update(MusiqlHistory).values(duration_played=duration).where(MusiqlHistory.id == history_id)
     async with async_session() as session:
         await session.execute(stmt)
