@@ -1,6 +1,6 @@
 from sqlalchemy.future import select
 from musiql_api.models import MusiqlRepository
-from musiql_api.db import async_session
+from musiql_api.db import get_session, AsyncSession
 import asyncio
 import os
 
@@ -9,9 +9,10 @@ def get_diff(db_uris:list):
     fs_uris = set(os.listdir("music_dump"))
     return list(fs_uris - db_uris)
 
-async def clean_music_dump():
+async def clean_music_dump(async_session:AsyncSession):
     stmt = select(MusiqlRepository.uri)
     db_uris = []
+
     async with async_session() as session:
         async for uri in (await session.stream(stmt)).scalars():
             db_uris.append(uri+".mp3")
@@ -32,7 +33,8 @@ async def clean_music_dump():
 
 
 async def main():
-    await clean_music_dump()
+    async_session = get_session()
+    await clean_music_dump(async_session)
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -33,14 +33,14 @@ class SkipPayload(BaseModel):
     history_id: int
     duration_played: float
 
-async def verify_artist_name(name: str, async_session:AsyncSession = Depends(get_session)) -> bool:
+async def verify_artist_name(name: str, async_session:AsyncSession) -> bool:
     stmt = select(exists().where(MusiqlRepository.artists.ilike(f"%{name}%")))
 
     async with async_session() as session:
         result = await session.execute(stmt)
         return result.scalar()
 
-async def download_resource(url:HttpUrl) -> tuple[str, str, str]:
+async def download_resource(url:HttpUrl, async_session:AsyncSession) -> tuple[str, str, str]:
     
     ext = "mp3"
     outdir = "music_dump"
@@ -99,7 +99,7 @@ async def download_resource(url:HttpUrl) -> tuple[str, str, str]:
             try:
                 info = ydl.extract_info(str(url))
                 uploader = info.get("uploader")
-                if not await verify_artist_name(uploader):
+                if not await verify_artist_name(uploader, async_session):
                     if uploader not in discovered_artists_cache:
                         print(discovered_artists_cache)
                         answer = await ainput(f"New artist found [{uploader}], confirm name? ")
@@ -120,7 +120,7 @@ async def download_resource(url:HttpUrl) -> tuple[str, str, str]:
 
     return upload_data
 
-async def resource_exists(hash: bytes, async_session:AsyncSession = Depends(get_session)):
+async def resource_exists(hash: bytes, async_session:AsyncSession):
     stmt = select(MusiqlRepository).where(MusiqlRepository.hash == hash)
 
     async with async_session() as session:
@@ -149,12 +149,12 @@ async def serve_record(uri: str, async_session:AsyncSession = Depends(get_sessio
 @router.post("/musiql/", response_model=None)
 async def receive_music(payload: MusiqlPayload, async_session:AsyncSession = Depends(get_session)):
 
-    for path, uri, info in await download_resource(payload.url):
+    for path, uri, info in await download_resource(payload.url, async_session):
         with open(path, "rb") as reader:
             hash = hashlib.sha256(reader.read()).digest()
             reader.close()
         try:
-            await resource_exists(hash)
+            await resource_exists(hash, async_session)
         except HTTPException as e:
             os.remove(path)
             return {"status" : e.detail}
@@ -167,6 +167,7 @@ async def receive_music(payload: MusiqlPayload, async_session:AsyncSession = Dep
             hash=hash,
             mime="audio/mpeg",
             metadata_json={"ext":path.split(".")[-1]},
+            url=str(payload.url)
         )
         async with async_session() as session, session.begin():
             session.add(new_resource)
@@ -207,7 +208,11 @@ async def advanced_search_songs(payload: AdvancedSearchPayload = None, async_ses
 
 
     if len(records) == 1 and payload.history_id > 0:
-        await update_duration(payload.history_id,payload.duration_played)
+        await update_duration(
+            payload.history_id,
+            payload.duration_played,
+            async_session=async_session
+        )
 
     response={
         "num_results": len(records),
@@ -230,8 +235,12 @@ async def serve_player(settings: Settings = Depends(get_settings)):
     return HTMLResponse(content=html_content, media_type="text/html")
 
 @router.post("/musiql/log/engagement/")
-async def log_engagement(skip_payload: SkipPayload):
-    await update_duration(skip_payload.history_id, skip_payload.duration_played)
+async def log_engagement(skip_payload: SkipPayload, async_session:AsyncSession = Depends(get_session)):
+    await update_duration(
+        skip_payload.history_id,
+        skip_payload.duration_played,
+        async_session=async_session
+    )
     return {"status" : "ok"}
 
 @router.get("/musiql/sample/")
@@ -266,7 +275,12 @@ async def track_history(uri: str, session):
 
     return new_record.id
 
-async def update_duration(history_id: int, duration: float, async_session:AsyncSession = Depends(get_session)):
+async def update_duration(
+        history_id: int,
+        duration: float,
+        async_session:AsyncSession
+    ):
+    
     stmt = update(MusiqlHistory).values(duration_played=duration).where(MusiqlHistory.id == history_id)
     async with async_session() as session:
         await session.execute(stmt)

@@ -5,7 +5,9 @@ description = "Add your description here"
 requires-python = ">=3.10,<4.0"
 dependencies = [
     "aioconsole>=0.8.2",
+    "alembic>=1.18.4",
     "asyncpg>=0.31.0",
+    "boto3>=1.42.79",
     "fastapi>=0.135.2",
     "ffmpeg>=1.4",
     "ffprobe>=0.5",
@@ -13,11 +15,12 @@ dependencies = [
     "matplotlib>=3.10.8",
     "networkx>=3.4.2",
     "numpy==2.2.6",
+    "psycopg2-binary>=2.9.11",
     "pydantic-settings>=2.13.1",
     "sqlalchemy>=2.0.48",
     "tqdm>=4.67.3",
     "uvicorn>=0.42.0",
-    "yt-dlp>=2026.3.17"
+    "yt-dlp>=2026.3.17",
 ]
 
 [project.scripts]

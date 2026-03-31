@@ -11,14 +11,13 @@ class MusiqlRepository(Base):
 
     uri : Mapped[str] = mapped_column(primary_key=True)
     title : Mapped[str] = mapped_column(nullable=False)
-    artists : Mapped[str] = mapped_column(nullable=False)
+    artists : Mapped[str] = mapped_column(nullable=False, index=True)
     filepath : Mapped[str] = mapped_column(nullable=False)
     hash : Mapped[bytes] = mapped_column(nullable=False)
     mime : Mapped[str] = mapped_column(nullable=False)
     metadata_json : Mapped[dict] = mapped_column(postgresql.JSONB(astext_type=sa.TEXT), nullable=False)
     created : Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), default=datetime.now(timezone.utc), nullable=False)
-    index: Mapped[int] = mapped_column(Identity(always=False), nullable=False)
-    url : Mapped[int] = mapped_column(nullable=True)
+    url : Mapped[str] = mapped_column(nullable=True)
   
 class MusiqlHistory(Base):
     __tablename__="music_history"

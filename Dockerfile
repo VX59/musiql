@@ -13,32 +13,20 @@ RUN apt-get update && apt-get install -y \
     zlib1g-dev \
     && pip install --upgrade pip
 
-# Pre-install numpy using binary wheel to avoid compiling
-RUN pip install uv
+
 RUN mkdir -p musiql
-WORKDIR /musiql
-
-ADD musiql-desktop /musiql/musiql-desktop
-ADD pyproject.toml /pyproject.toml
-RUN pip install \
-    aioconsole>=0.8.2 \
-    asyncpg>=0.31.0 \
-    fastapi>=0.135.2 \
-    ffmpeg>=1.4 \
-    ffprobe>=0.5 \
-    joblib>=1.5.3 \
-    matplotlib>=3.10.8 \
-    networkx>=3.4.2 \
-    numpy==2.2.6 \
-    pydantic-settings>=2.13.1 \
-    sqlalchemy>=2.0.48 \
-    tqdm>=4.67.3 \
-    uvicorn>=0.42.0 \
-    yt-dlp>=2026.3.17
-
-ADD .env /musiql/.env
+ADD pyproject.toml /musiql/pyproject.toml
 ADD musiql /musiql/musiql
 ADD musiql_api /musiql/musiql_api
+
+WORKDIR /musiql
+
+RUN pip install uv
+
+RUN uv sync
+
+ADD .env /musiql/.env
+ADD musiql-desktop /musiql/musiql-desktop
 ADD recommendation-models /musiql/recommendation-models
 
-CMD ["uvicorn", "musiql.server:main", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uv", "run", "musiql", "--host", "0.0.0.0", "--port", "8000"]
