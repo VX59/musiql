@@ -12,8 +12,8 @@ def get_engine():
 
     config = ConfigParser()
     config.read("alembic.ini")
-    password = settings.db_password
-    DATABASE_URL = f"postgresql+asyncpg://jacob:{password}@jacob-server:5432/musiql"
+
+    DATABASE_URL = f"postgresql+asyncpg://{settings.db_user}:{settings.db_password}@{settings.db_domain}:{settings.db_port}/{settings.db_name}"
 
     engine = create_async_engine(DATABASE_URL, echo=True)
 
