@@ -14,7 +14,7 @@ from musiql_api.models import Base  # adjust import
 
 settings:Settings = get_settings()
 
-db_url = f"postgresql+psycopg2://{settings.db_user}:{settings.db_password}@{settings.db_domain}:5432/musiql"
+db_url = f"postgresql+psycopg2://{settings.db_user}:{settings.db_password}@{settings.db_domain}:5433/{settings.db_name}"
 
 config = context.config
 config.set_main_option("sqlalchemy.url", db_url)
