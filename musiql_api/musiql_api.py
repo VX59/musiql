@@ -16,6 +16,7 @@ import os
 from aioconsole import ainput
 from datetime import datetime, timezone
 from .GraphAMP import GraphAMP
+from typing import Optional
 
 router = APIRouter()
 
@@ -243,11 +244,12 @@ async def log_engagement(skip_payload: SkipPayload, async_session:AsyncSession =
     )
     return {"status" : "ok"}
 
-@router.get("/musiql/sample/")
-async def sample_song(async_session:AsyncSession = Depends(get_session)):
+@router.get("/musiql/sample/{uri}")
+async def sample_song(uri:Optional[str], async_session:AsyncSession = Depends(get_session)):
 
-    await recommendation_model.sample()
-    stmt = select(MusiqlRepository).where(MusiqlRepository.uri == recommendation_model.model_state)
+    state = recommendation_model.sample(uri)
+
+    stmt = select(MusiqlRepository).where(MusiqlRepository.uri == state)
 
     async with async_session() as session:
         result = await session.execute(stmt)
