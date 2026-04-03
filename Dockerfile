@@ -1,32 +1,23 @@
-FROM ubuntu:22.04
+FROM public.ecr.aws/lambda/python:3.10
 
-FROM ubuntu:22.04
+RUN yum install -y \
+    gcc \
+    gcc-gfortran \
+    atlas-devel \
+    lapack-devel \
+    libjpeg-turbo-devel \
+    zlib-devel
 
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    build-essential \
-    gfortran \
-    libopenblas-dev \
-    liblapack-dev \
-    libjpeg-dev \
-    zlib1g-dev \
-    && pip install --upgrade pip
+WORKDIR /var/task
 
+COPY requirements.txt .
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install -r requirements.txt
 
-RUN mkdir -p musiql
-ADD pyproject.toml /musiql/pyproject.toml
-ADD musiql /musiql/musiql
-ADD musiql_api /musiql/musiql_api
+COPY musiql ./musiql
+COPY musiql_api ./musiql_api
+COPY .env .
+COPY musiql-desktop ./musiql-desktop
+COPY recommendation-models ./recommendation-models
 
-WORKDIR /musiql
-
-RUN pip install uv
-
-RUN uv sync
-
-ADD .env /musiql/.env
-ADD musiql-desktop /musiql/musiql-desktop
-ADD recommendation-models /musiql/recommendation-models
-
-CMD ["uv", "run", "musiql", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["musiql.handler.handler"]

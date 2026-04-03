@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "musiql"
 version = "0.1.0"
@@ -12,6 +16,7 @@ dependencies = [
     "ffmpeg>=1.4",
     "ffprobe>=0.5",
     "joblib>=1.5.3",
+    "mangum>=0.21.0",
     "matplotlib>=3.10.8",
     "networkx>=3.4.2",
     "numpy==2.2.6",
