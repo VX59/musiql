@@ -1,0 +1,43 @@
+name: Deploy to Lambda via ECR
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: us-east-2
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region us-east-2 \
+          | docker login --username AWS --password-stdin 055013504613.dkr.ecr.us-east-2.amazonaws.com
+
+      - name: Build Docker image
+        run: |
+          docker build -t musiql/container-registry .
+
+      - name: Tag image
+        run: |
+          docker tag musiql/container-registry:latest 055013504613.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:latest
+
+      - name: Push to ECR
+        run: |
+          docker push 055013504613.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:latest
+
+      - name: Update Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name musiql-lambda \
+            --image-uri 055013504613.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:latest
