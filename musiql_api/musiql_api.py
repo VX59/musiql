@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from musiql_api.settings import Settings, get_settings
 from musiql_api.db import get_session
 from musiql_api.s3_service import S3Service
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, Response
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
 from musiql_api.models import MusiqlRepository, MusiqlHistory
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
@@ -153,11 +153,30 @@ async def serve_record(
 
         try:
             url = s3_service.get_presigned_url(s3_key)
-            return {"url": url}
+            body = {"url": url}
+            headers = {
+                "Content-Type": "application/json",
+                "X-history-id": str(history_id)
+            } 
+            return JSONResponse(
+                content=body,
+                headers=headers
+            )
 
         except Exception as e:
             print(f"Encountered error during s3 fetch {e} this fallback should only occur in local development")
-            return FileResponse(path=record.filepath, media_type=record.mime, filename=filename,  headers={"Cache-Control": "no-store", "X-history-id": str(history_id)})
+            headers = {
+                "Content-Type": "audio/mpeg",
+                "Cache-Control": "no-store",
+                "X-history-id": str(history_id)
+            }
+
+            return FileResponse(
+                path=record.filepath,
+                media_type=record.mime,
+                filename=filename,
+                headers=headers
+            )
 
 @router.post("/musiql/", response_model=None)
 async def receive_music(payload: MusiqlPayload, async_session:AsyncSession = Depends(get_session)):
