@@ -2,7 +2,8 @@ from pydantic import BaseModel, HttpUrl
 from fastapi import APIRouter, HTTPException, status, Depends
 from musiql_api.settings import Settings, get_settings
 from musiql_api.db import get_session
-from fastapi.responses import HTMLResponse, FileResponse
+from musiql_api.s3_service import S3Service
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, Response
 from musiql_api.models import MusiqlRepository, MusiqlHistory
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
@@ -17,10 +18,9 @@ from aioconsole import ainput
 from datetime import datetime, timezone
 from .GraphAMP import GraphAMP
 from typing import Optional
+from io import BytesIO
 
 router = APIRouter()
-
-recommendation_model = GraphAMP()
 
 class MusiqlPayload(BaseModel):
     url: HttpUrl
@@ -131,8 +131,13 @@ async def resource_exists(hash: bytes, async_session:AsyncSession):
         if record is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="attempting to upload duplicate record")
 
+
 @router.get("/musiql/serve/{uri}")
-async def serve_record(uri: str, async_session:AsyncSession = Depends(get_session)):
+async def serve_record(
+    uri: str,
+    async_session:AsyncSession = Depends(get_session),
+    s3_service:S3Service = Depends(S3Service.get_s3_service)
+):
 
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == uri)
     async with async_session() as session:
@@ -142,10 +147,17 @@ async def serve_record(uri: str, async_session:AsyncSession = Depends(get_sessio
         if record is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="record not found")
         
-        filename = record.filepath.split("/")[-1]
         history_id = await track_history(record.uri, session)
+        filename = f"{record.uri}.mp3"
+        s3_key = f"musiql_dump/{filename}"
 
-        return FileResponse(path=record.filepath, media_type=record.mime, filename=filename,  headers={"Cache-Control": "no-store", "X-history-id": str(history_id)})
+        try:
+            url = s3_service.get_presigned_url(s3_key)
+            return {"url": url}
+
+        except Exception as e:
+            print(f"Encountered error during s3 fetch {e} this fallback should only occur in local development")
+            return FileResponse(path=record.filepath, media_type=record.mime, filename=filename,  headers={"Cache-Control": "no-store", "X-history-id": str(history_id)})
 
 @router.post("/musiql/", response_model=None)
 async def receive_music(payload: MusiqlPayload, async_session:AsyncSession = Depends(get_session)):
@@ -245,7 +257,11 @@ async def log_engagement(skip_payload: SkipPayload, async_session:AsyncSession =
     return {"status" : "ok"}
 
 @router.get("/musiql/sample/{uri}")
-async def sample_song(uri:Optional[str], async_session:AsyncSession = Depends(get_session)):
+async def sample_song(
+    uri:Optional[str],
+    async_session:AsyncSession = Depends(get_session),
+    recommendation_model = Depends(GraphAMP.get_model)
+):
 
     state = recommendation_model.sample(uri)
 

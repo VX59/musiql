@@ -4,6 +4,8 @@ from joblib import load
 from pathlib import Path
 from typing import Optional
 
+recommendation_model = None
+
 class GraphAMP:
     def __init__(self):
         model_path = Path("recommendation-models") / "GraphAMP" / "models" / "GraphAMP.graph"
@@ -23,3 +25,10 @@ class GraphAMP:
                 next_model_state = random.choice(list(self.model.nodes))
 
         return next_model_state
+    
+    @classmethod
+    def get_model(cls):
+        global recommendation_model
+        if recommendation_model is None:
+            recommendation_model = cls()
+        return recommendation_model

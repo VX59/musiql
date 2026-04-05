@@ -14,3 +14,4 @@ pydantic-settings>=2.13.1
 sqlalchemy>=2.0.48
 tqdm>=4.67.3
 yt-dlp>=2026.3.17
+requests>=2.33.1
