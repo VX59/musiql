@@ -23,7 +23,7 @@ jobs:
       - name: Login to ECR
         run: |
           aws ecr get-login-password --region us-east-2 \
-          | docker login --username AWS --password-stdin 055013504613.dkr.ecr.us-east-2.amazonaws.com
+          | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com
 
       - name: Build Docker image
         run: |
@@ -31,14 +31,14 @@ jobs:
 
       - name: Tag image
         run: |
-          docker tag musiql/container-registry:latest 055013504613.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:latest
+          docker tag musiql/container-registry:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:latest
 
       - name: Push to ECR
         run: |
-          docker push 055013504613.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:latest
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:latest
 
       - name: Update Lambda
         run: |
           aws lambda update-function-code \
             --function-name musiql-lambda \
-            --image-uri 055013504613.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:latest
+            --image-uri ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:latest
