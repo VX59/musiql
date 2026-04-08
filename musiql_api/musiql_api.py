@@ -11,14 +11,12 @@ import os
 from sqlalchemy import update, exists, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-import hashlib
 import secrets
 import os
 from aioconsole import ainput
 from datetime import datetime, timezone
 from .GraphAMP import GraphAMP
 from typing import Optional
-from io import BytesIO
 
 router = APIRouter()
 
@@ -34,6 +32,55 @@ class SkipPayload(BaseModel):
     history_id: int
     duration_played: float
 
+
+@router.get("/musiql/serve/{uri}")
+async def serve_record(
+    uri: str,
+    async_session:AsyncSession = Depends(get_session),
+    s3_service:S3Service = Depends(S3Service.get_s3_service)
+):
+
+    stmt = select(MusiqlRepository).where(MusiqlRepository.uri == uri)
+    async with async_session() as session:
+        result = await session.execute(stmt)
+        record = result.scalars().first()
+        
+        if record is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="record not found")
+        
+        history_id = await track_history(record.uri, session)
+        filename = f"{record.uri}.mp3"
+        s3_key = f"musiql_dump/{filename}"
+
+        try:
+            url = s3_service.get_presigned_url(s3_key)
+            body = {"url": url}
+            headers = {
+                "Content-Type": "application/json",
+                "X-history-id": str(history_id)
+            } 
+            return JSONResponse(
+                content=body,
+                headers=headers
+            )
+
+        except Exception as e:
+            print(f"Encountered error during s3 fetch {e} this fallback should only occur in local development")
+            headers = {
+                "Content-Type": "audio/mpeg",
+                "Cache-Control": "no-store",
+                "X-history-id": str(history_id)
+            }
+
+            return FileResponse(
+                path=record.filepath,
+                media_type=record.mime,
+                filename=filename,
+                headers=headers
+            )
+
+
+
 async def verify_artist_name(name: str, async_session:AsyncSession) -> bool:
     stmt = select(exists().where(MusiqlRepository.artists.ilike(f"%{name}%")))
 
@@ -41,7 +88,11 @@ async def verify_artist_name(name: str, async_session:AsyncSession) -> bool:
         result = await session.execute(stmt)
         return result.scalar()
 
-async def download_resource(url:HttpUrl, async_session:AsyncSession) -> tuple[str, str, str]:
+async def download_resource(
+    url:HttpUrl,
+    async_session:AsyncSession,
+    s3_service:S3Service
+) -> tuple[str, str, str]:
     
     ext = "mp3"
     outdir = "music_dump"
@@ -98,7 +149,14 @@ async def download_resource(url:HttpUrl, async_session:AsyncSession) -> tuple[st
         ydl_opts['outtmpl'] = outtmpl
         with YoutubeDL(ydl_opts) as ydl:
             try:
-                info = ydl.extract_info(str(url))
+                info = ydl.extract_info(str(url), download=False)
+
+                stream_url = info["url"]
+                headers = info.get("http_headers", {})
+                obj_key = f"musiql_dump/{uri}.{ext}"
+
+                file_hash = s3_service.upload_object(stream_url, obj_key, headers)
+
                 uploader = info.get("uploader")
                 if not await verify_artist_name(uploader, async_session):
                     if uploader not in discovered_artists_cache:
@@ -113,8 +171,7 @@ async def download_resource(url:HttpUrl, async_session:AsyncSession) -> tuple[st
                             if uploader not in discovered_artists_cache:                            
                                 discovered_artists_cache.append(uploader)
 
-                filepath = os.path.join(outdir, f"{uri}.{ext}")
-                upload_data.append((filepath, uri, info))
+                upload_data.append((file_hash, obj_key, uri, info))
 
             except DownloadError as e:
                 continue
@@ -132,73 +189,29 @@ async def resource_exists(hash: bytes, async_session:AsyncSession):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="attempting to upload duplicate record")
 
 
-@router.get("/musiql/serve/{uri}")
-async def serve_record(
-    uri: str,
+@router.post("/musiql/", response_model=None)
+async def receive_music(
+    payload: MusiqlPayload,
     async_session:AsyncSession = Depends(get_session),
-    s3_service:S3Service = Depends(S3Service.get_s3_service)
+    s3_service:S3Service = Depends(S3Service.get_s3_service)    
 ):
 
-    stmt = select(MusiqlRepository).where(MusiqlRepository.uri == uri)
-    async with async_session() as session:
-        result = await session.execute(stmt)
-        record = result.scalars().first()
-        
-        if record is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="record not found")
-        
-        history_id = await track_history(record.uri, session)
-        filename = f"{record.uri}.mp3"
-        s3_key = f"musiql_dump/{filename}"
-
+    for file_hash, obj_key, uri, info in await download_resource(payload.url, async_session, s3_service):
         try:
-            url = s3_service.get_presigned_url(s3_key)
-            body = {"url": url}
-            headers = {
-                "Content-Type": "application/json",
-                "X-history-id": str(history_id)
-            } 
-            return JSONResponse(
-                content=body,
-                headers=headers
-            )
-
-        except Exception as e:
-            print(f"Encountered error during s3 fetch {e} this fallback should only occur in local development")
-            headers = {
-                "Content-Type": "audio/mpeg",
-                "Cache-Control": "no-store",
-                "X-history-id": str(history_id)
-            }
-
-            return FileResponse(
-                path=record.filepath,
-                media_type=record.mime,
-                filename=filename,
-                headers=headers
-            )
-
-@router.post("/musiql/", response_model=None)
-async def receive_music(payload: MusiqlPayload, async_session:AsyncSession = Depends(get_session)):
-
-    for path, uri, info in await download_resource(payload.url, async_session):
-        with open(path, "rb") as reader:
-            hash = hashlib.sha256(reader.read()).digest()
-            reader.close()
-        try:
-            await resource_exists(hash, async_session)
+            await resource_exists(file_hash, async_session)
         except HTTPException as e:
-            os.remove(path)
+            s3_service.delete_object(obj_key)
+            print(f"found duplicate deleting {obj_key}")
             return {"status" : e.detail}
 
         new_resource = MusiqlRepository(
             uri=uri,
             title=info.get('title'),
             artists = info.get('uploader'),
-            filepath=path,
-            hash=hash,
+            filepath=obj_key,
+            hash=file_hash,
             mime="audio/mpeg",
-            metadata_json={"ext":path.split(".")[-1]},
+            metadata_json={},
             url=str(payload.url)
         )
         async with async_session() as session, session.begin():

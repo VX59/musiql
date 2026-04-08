@@ -1,10 +1,13 @@
 # musiql_api/s3_service.py - FIXED VERSION
 
 import boto3
+from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
 from typing import Optional, List
 from musiql_api.settings import get_settings
 from fastapi import HTTPException
+import requests
+import hashlib
 
 class S3Service():
     def __init__(self):
@@ -61,3 +64,63 @@ class S3Service():
             )
         except Exception as e:
             raise HTTPException(status_code=404, detail=f"object {key} not found, {e}")
+
+    def delete_object(self, key):
+        self.s3_client.delete_object(
+            Bucket=self.bucket,
+            Key=key
+        )
+
+    def upload_object(self, stream_url, key, headers):
+
+        response = requests.get(stream_url, headers=headers, stream=True)
+        response.raise_for_status()
+        
+        hasher = hashlib.sha256()
+
+        mpu = self.s3_client.create_multipart_upload(Bucket=self.bucket, Key=key)
+
+        upload_id = mpu["UploadId"]
+
+        parts = []
+        part_number = 1
+
+        try:
+            for chunk in response.iter_content(5 * 1024 * 1024):
+                if not chunk:
+                    continue
+
+                hasher.update(chunk)
+
+                part = self.s3_client.upload_part(
+                    Bucket=self.bucket,
+                    Key=key,
+                    PartNumber=part_number,
+                    UploadId=upload_id,
+                    Body=chunk
+                )
+
+                parts.append({
+                    "PartNumber": part_number,
+                    "ETag": part["ETag"]
+                })
+
+                part_number += 1
+
+            self.s3_client.complete_multipart_upload(
+                Bucket=self.bucket,
+                Key=key,
+                UploadId=upload_id,
+                MultipartUpload={"Parts": parts}
+            )
+
+            return hasher.digest()
+        
+        except Exception as e:
+            # Abort on failure
+            self.s3_client.abort_multipart_upload(
+                Bucket=self.bucket,
+                Key=key,
+                UploadId=upload_id
+            )
+            raise e
