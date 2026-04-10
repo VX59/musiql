@@ -2,46 +2,53 @@ from pydantic import BaseModel, HttpUrl
 from fastapi import APIRouter, HTTPException, status, Depends
 from musiql_api.settings import Settings, get_settings
 from musiql_api.db import get_session
-from musiql_api.s3_service import S3Service
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
+from musiql_api.s3_service import S3Service, DuplicateResource
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from musiql_api.models import MusiqlRepository, MusiqlHistory
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
-import os
 from sqlalchemy import update, exists, or_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 import secrets
 import os
-from aioconsole import ainput
 from datetime import datetime, timezone
 from .GraphAMP import GraphAMP
-from typing import Optional
+from typing import Optional, List, Tuple, Dict
+from dataclasses import dataclass, asdict
+import json
 
 router = APIRouter()
 
+
 class MusiqlPayload(BaseModel):
     url: HttpUrl
+
 
 class AdvancedSearchPayload(BaseModel):
     history_id: int
     search_term: str
     duration_played: float
 
+
 class SkipPayload(BaseModel):
     history_id: int
     duration_played: float
 
 
+class FixUploaderPayload(BaseModel):
+    context:dict
+
+
 @router.get("/musiql/serve/{uri}")
 async def serve_record(
     uri: str,
-    async_session:AsyncSession = Depends(get_session),
+    session_maker:sessionmaker = Depends(get_session),
     s3_service:S3Service = Depends(S3Service.get_s3_service)
 ):
 
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == uri)
-    async with async_session() as session:
+    async with session_maker() as session:
         result = await session.execute(stmt)
         record = result.scalars().first()
         
@@ -80,23 +87,40 @@ async def serve_record(
             )
 
 
-
-async def verify_artist_name(name: str, async_session:AsyncSession) -> bool:
+async def is_known_uploader(name: str, session_maker:sessionmaker) -> bool:
     stmt = select(exists().where(MusiqlRepository.artists.ilike(f"%{name}%")))
 
-    async with async_session() as session:
+    async with session_maker() as session:
         result = await session.execute(stmt)
         return result.scalar()
 
+
+@dataclass       
+class DownloadedResourceContext:
+    file_hash: str
+    obj_key: str
+    uri: str
+    uploader: str
+    title: str
+    url: str
+
+    @classmethod
+    def create_from_context_dict(cls, context:Dict):
+        return cls(**context)
+
+
 async def download_resource(
     url:HttpUrl,
-    async_session:AsyncSession,
+    session_maker:sessionmaker,
     s3_service:S3Service
-) -> tuple[str, str, str]:
+) -> Optional[Tuple[
+    List[DownloadedResourceContext],
+    List[DownloadedResourceContext]
+    ]
+]:
     
     ext = "mp3"
     outdir = "music_dump"
-    upload_data:list[tuple[str,str, dict]] = []
 
     def make_filename():
         uri = f"{secrets.randbelow(0x1000000):06x}"
@@ -115,7 +139,7 @@ async def download_resource(
             info = ydl.extract_info(str(url), download=False)
         except DownloadError as e:
             print(f"media unavailable {url}")
-            return upload_data
+            return None
 
     ydl_opts = {
         'outtmpl': outtmpl,
@@ -140,90 +164,143 @@ async def download_resource(
     else:
         entries = [info]
 
-    discovered_artists_cache = []
+    discovered_artists = []
+
+    unkown_uploader_context:List[DownloadedResourceContext] = []
+    known_uploader_context:List[DownloadedResourceContext] = []
+
     for entry in entries:
         url = entry.get('webpage_url') or f"https://www.youtube.com/watch?v={entry['id']}"
         uri = make_filename()
         outtmpl = os.path.join(outdir, uri)
 
         ydl_opts['outtmpl'] = outtmpl
+
         with YoutubeDL(ydl_opts) as ydl:
             try:
                 info = ydl.extract_info(str(url), download=False)
 
-                stream_url = info["url"]
+                stream_url = info.get("url")
                 headers = info.get("http_headers", {})
                 obj_key = f"musiql_dump/{uri}.{ext}"
 
-                file_hash = s3_service.upload_object(stream_url, obj_key, headers)
+                file_hash = await s3_service.upload_object(
+                    stream_url,
+                    obj_key,
+                    headers,
+                    session_maker
+                )
 
                 uploader = info.get("uploader")
-                if not await verify_artist_name(uploader, async_session):
-                    if uploader not in discovered_artists_cache:
-                        print(discovered_artists_cache)
-                        answer = await ainput(f"New artist found [{uploader}], confirm name? ")
-                        answer = answer.strip()
-                        if answer.strip():
-                            info["uploader"] = answer.strip()
-                            if answer not in discovered_artists_cache:
-                                discovered_artists_cache.append(answer)
-                        else:
-                            if uploader not in discovered_artists_cache:                            
-                                discovered_artists_cache.append(uploader)
 
-                upload_data.append((file_hash, obj_key, uri, info))
+                context = DownloadedResourceContext(
+                    file_hash=file_hash.hex(),
+                    obj_key=obj_key,
+                    uri=uri,
+                    uploader=uploader,
+                    title=info.get("title"),
+                    url=str(url)
+                )
 
-            except DownloadError as e:
+                if not await is_known_uploader(uploader, session_maker):
+                    if uploader not in discovered_artists:
+                        print(f"unknown uploader {uploader}")
+                        discovered_artists.append(uploader)
+                        unkown_uploader_context.append(context)
+                else:
+                    known_uploader_context.append(context)
+
+            except Exception as e:
+                print(e)
                 continue
 
-    return upload_data
-
-async def resource_exists(hash: bytes, async_session:AsyncSession):
-    stmt = select(MusiqlRepository).where(MusiqlRepository.hash == hash)
-
-    async with async_session() as session:
-
-        result = await session.execute(stmt)
-        record = result.scalars().first()
-        if record is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="attempting to upload duplicate record")
+    return known_uploader_context, unkown_uploader_context 
 
 
-@router.post("/musiql/", response_model=None)
+@router.post("/musiql/try/receive", response_model=None)
 async def receive_music(
     payload: MusiqlPayload,
-    async_session:AsyncSession = Depends(get_session),
+    session_maker:sessionmaker = Depends(get_session),
     s3_service:S3Service = Depends(S3Service.get_s3_service)    
 ):
+    result = await download_resource(payload.url, session_maker, s3_service)
+    known_uploader_context:List[DownloadedResourceContext] = result[0]
+    unknown_uploader_context:List[DownloadedResourceContext] = result[1]
 
-    for file_hash, obj_key, uri, info in await download_resource(payload.url, async_session, s3_service):
-        try:
-            await resource_exists(file_hash, async_session)
-        except HTTPException as e:
-            s3_service.delete_object(obj_key)
-            print(f"found duplicate deleting {obj_key}")
-            return {"status" : e.detail}
+    for context in known_uploader_context:
 
         new_resource = MusiqlRepository(
-            uri=uri,
-            title=info.get('title'),
-            artists = info.get('uploader'),
-            filepath=obj_key,
-            hash=file_hash,
+            uri=context.uri,
+            title=context.title,
+            artists=context.uploader,
+            filepath=context.obj_key,
+            hash=context.file_hash,
             mime="audio/mpeg",
             metadata_json={},
             url=str(payload.url)
         )
-        async with async_session() as session, session.begin():
+        async with session_maker() as session, session.begin():
             session.add(new_resource)
 
-    return {"status": "ok"}
-
-async def select_song(search_term, async_session:AsyncSession = Depends(get_session)):
+    headers = { "Content-Type": "application/json" } 
     
-    stmt = select(MusiqlRepository).where(MusiqlRepository.title.ilike(f"%{search_term}%"))
+    if unknown_uploader_context:
 
-    async with async_session() as session:
+        print(unknown_uploader_context)
+
+        serialized_unknown_uploader_context = json.loads(
+            json.dumps(
+                [asdict(ctx) for ctx in unknown_uploader_context]
+            )
+        )
+
+        return JSONResponse(
+            content={
+                "needs_fix": True,
+                "unknown_uploaders": serialized_unknown_uploader_context 
+            },
+            headers=headers,
+        )
+    else:
+        return JSONResponse(
+            content={
+                "needs_fix": False
+            },
+            headers=headers
+        )
+
+
+@router.post("/musiql/fix_uploader", response_model=None)
+async def fix_uploader(
+    payload: FixUploaderPayload,
+    session_maker:sessionmaker = Depends(get_session),
+):
+
+    file_hash = bytes.fromhex(payload.context.get("file_hash"))
+
+    context = DownloadedResourceContext.create_from_context_dict(payload.context)
+
+    new_resource = MusiqlRepository(
+        uri=context.uri,
+        title=context.title,
+        artists=context.uploader,
+        filepath=context.obj_key,
+        hash=file_hash,
+        mime="audio/mpeg",
+        metadata_json={},
+        url=context.url
+    )
+    async with session_maker() as session, session.begin():
+        session.add(new_resource)
+    
+    return JSONResponse(
+        content={"status": f"successfully fixed {context.uri}, {context.uploader}"}
+    )
+
+
+async def select_song(search_term, session_maker:sessionmaker = Depends(get_session)):
+    stmt = select(MusiqlRepository).where(MusiqlRepository.title.ilike(f"%{search_term}%"))
+    async with session_maker() as session:
 
         result = await session.execute(stmt)
         record = result.scalars().first()
@@ -232,8 +309,12 @@ async def select_song(search_term, async_session:AsyncSession = Depends(get_sess
 
     return record
 
+
 @router.post("/musiql/search/advanced", response_model=None)
-async def advanced_search_songs(payload: AdvancedSearchPayload = None, async_session:AsyncSession = Depends(get_session)):
+async def advanced_search_songs(
+    payload: AdvancedSearchPayload = None,
+    session_maker:sessionmaker = Depends(get_session)
+):
     stmt = (
         select(MusiqlRepository)
         .where(
@@ -244,7 +325,7 @@ async def advanced_search_songs(payload: AdvancedSearchPayload = None, async_ses
         )
     )
 
-    async with async_session() as session:
+    async with session_maker() as session:
         result = await session.execute(stmt)
         records = result.scalars().all()
 
@@ -256,7 +337,7 @@ async def advanced_search_songs(payload: AdvancedSearchPayload = None, async_ses
         await update_duration(
             payload.history_id,
             payload.duration_played,
-            async_session=async_session
+            session_maker=session_maker
         )
 
     response={
@@ -279,19 +360,24 @@ async def serve_player(settings: Settings = Depends(get_settings)):
 
     return HTMLResponse(content=html_content, media_type="text/html")
 
+
 @router.post("/musiql/log/engagement/")
-async def log_engagement(skip_payload: SkipPayload, async_session:AsyncSession = Depends(get_session)):
+async def log_engagement(
+    skip_payload: SkipPayload,
+    session_maker:sessionmaker = Depends(get_session)
+):
     await update_duration(
         skip_payload.history_id,
         skip_payload.duration_played,
-        async_session=async_session
+        session_maker=session_maker
     )
     return {"status" : "ok"}
+
 
 @router.get("/musiql/sample/{uri}")
 async def sample_song(
     uri:Optional[str],
-    async_session:AsyncSession = Depends(get_session),
+    session_maker:sessionmaker = Depends(get_session),
     recommendation_model = Depends(GraphAMP.get_model)
 ):
 
@@ -299,7 +385,7 @@ async def sample_song(
 
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == state)
 
-    async with async_session() as session:
+    async with session_maker() as session:
         result = await session.execute(stmt)
         sample_record = result.scalars().first()
         if not sample_record:
@@ -312,7 +398,8 @@ async def sample_song(
         }
 
         return response
-    
+
+
 async def track_history(uri: str, session):
     new_record = MusiqlHistory(
         uri= uri,
@@ -325,13 +412,14 @@ async def track_history(uri: str, session):
 
     return new_record.id
 
+
 async def update_duration(
         history_id: int,
         duration: float,
-        async_session:AsyncSession
+        session_maker:sessionmaker
     ):
     
     stmt = update(MusiqlHistory).values(duration_played=duration).where(MusiqlHistory.id == history_id)
-    async with async_session() as session:
+    async with session_maker() as session:
         await session.execute(stmt)
         await session.commit()

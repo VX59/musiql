@@ -1,13 +1,32 @@
 # musiql_api/s3_service.py - FIXED VERSION
 
 import boto3
-from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
-from typing import Optional, List
+from typing import List
 from musiql_api.settings import get_settings
 from fastapi import HTTPException
 import requests
 import hashlib
+from sqlalchemy.future import select
+from musiql_api.models import MusiqlRepository
+from sqlalchemy.orm import sessionmaker
+
+class DuplicateResource(Exception):
+    pass
+
+
+async def resource_exists(hash: bytes, session_maker:sessionmaker) -> bool:
+    stmt = select(MusiqlRepository).where(MusiqlRepository.hash == hash)
+
+    async with session_maker() as session:
+
+        result = await session.execute(stmt)
+        record = result.scalars().first()
+        if record is not None:
+            return True
+
+    return False
+
 
 class S3Service():
     def __init__(self):
@@ -71,13 +90,19 @@ class S3Service():
             Key=key
         )
 
-    def upload_object(self, stream_url, key, headers):
+
+    async def upload_object(
+        self,
+        stream_url,
+        key,
+        headers,
+        session_maker:sessionmaker
+    ):
+        hasher = hashlib.sha256()
 
         response = requests.get(stream_url, headers=headers, stream=True)
         response.raise_for_status()
         
-        hasher = hashlib.sha256()
-
         mpu = self.s3_client.create_multipart_upload(Bucket=self.bucket, Key=key)
 
         upload_id = mpu["UploadId"]
@@ -107,6 +132,10 @@ class S3Service():
 
                 part_number += 1
 
+            digest = hasher.digest()
+            if await resource_exists(digest, session_maker=session_maker):
+                raise DuplicateResource()
+
             self.s3_client.complete_multipart_upload(
                 Bucket=self.bucket,
                 Key=key,
@@ -114,7 +143,7 @@ class S3Service():
                 MultipartUpload={"Parts": parts}
             )
 
-            return hasher.digest()
+            return digest
         
         except Exception as e:
             # Abort on failure
