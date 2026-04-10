@@ -23,10 +23,10 @@ def get_engine():
 def get_session():
     engine = get_engine()
 
-    async_session = sessionmaker(
+    async_session_maker = sessionmaker(
         bind=engine,
         class_=AsyncSession,
         expire_on_commit=False,
     )
 
-    return async_session
+    return async_session_maker
