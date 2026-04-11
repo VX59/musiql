@@ -31,10 +31,11 @@ dependencies = [
 
 [project.scripts]
 musiql = "musiql.server:main"
+media_ingestion = "media_ingestion.media_ingestion.server:main"
 
 [tool.uv]
 package = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["musiql*"]
+include = ["musiql*", "media_ingestion*"]

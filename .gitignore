@@ -1,8 +1,7 @@
-*/__pycache__/
-/migrations/script.py.mako
-/.vscode
-/music_dump
-/musiql-desktop/node_modules
+__pycache__
+.vscode
+music_dump
+musiql-desktop/node_modules
 *.png
 *.pyc
 .venv

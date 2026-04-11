@@ -3,12 +3,12 @@
 import boto3
 from botocore.exceptions import ClientError
 from typing import List
-from musiql_api.settings import get_settings
+from settings import get_settings
 from fastapi import HTTPException
 import requests
 import hashlib
 from sqlalchemy.future import select
-from musiql_api.models import MusiqlRepository
+from database.models import MusiqlRepository
 from sqlalchemy.orm import sessionmaker
 
 class DuplicateResource(Exception):
