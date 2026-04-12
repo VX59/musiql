@@ -55,10 +55,8 @@ async def download_resource(
     s3_service:S3Service
 ) -> Optional[Tuple[
     List[DownloadedResourceContext],
-    List[DownloadedResourceContext]
-    ]
+    List[DownloadedResourceContext]]
 ]:
-    
     ext = "mp3"
     outdir = "music_dump"
 
@@ -167,12 +165,14 @@ async def receive_music(
 
     for context in known_uploader_context:
 
+        file_hash = bytes.fromhex(context.file_hash)
+        
         new_resource = MusiqlRepository(
             uri=context.uri,
             title=context.title,
             artists=context.uploader,
             filepath=context.obj_key,
-            hash=context.file_hash,
+            hash=file_hash,
             mime="audio/mpeg",
             metadata_json={},
             url=str(payload.url)

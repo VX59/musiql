@@ -133,7 +133,7 @@ async def serve_player(settings: Settings = Depends(get_settings)):
 
     html_content = html_content.replace("{{MUSIQL_API_URL}}", settings.musiql_api_url)
     html_content = html_content.replace("{{MEDIA_INGESTION_API_URL}}", settings.media_ingestion_api_url)
-    
+
     return HTMLResponse(content=html_content, media_type="text/html")
 
 
