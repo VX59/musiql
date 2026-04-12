@@ -5,9 +5,9 @@ from sqlalchemy import pool
 
 from alembic import context
 
-from musiql_api.settings import get_settings, Settings
+from settings import get_settings, Settings
 
-from musiql_api.models import Base  # adjust import
+from database.models import Base  # adjust import
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

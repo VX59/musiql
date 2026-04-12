@@ -1,7 +1,7 @@
 from sqlalchemy.dialects import postgresql
 import sqlalchemy as sa
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column
-from sqlalchemy import DateTime, func, ForeignKey, Identity
+from sqlalchemy import DateTime, func, ForeignKey
 from datetime import datetime, timezone
 
 Base = declarative_base()
@@ -18,7 +18,8 @@ class MusiqlRepository(Base):
     metadata_json : Mapped[dict] = mapped_column(postgresql.JSONB(astext_type=sa.TEXT), nullable=False)
     created : Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), default=datetime.now(timezone.utc), nullable=False)
     url : Mapped[str] = mapped_column(nullable=True)
-  
+
+
 class MusiqlHistory(Base):
     __tablename__="music_history"
     id : Mapped[int] = mapped_column(primary_key=True, index=True)
@@ -26,3 +27,9 @@ class MusiqlHistory(Base):
                                       nullable=False)
     duration_played : Mapped[float] = mapped_column(nullable=False)
     listened_at : Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ModelUpdates(Base):
+    __tablename__="model_updates"
+    id : Mapped[int] = mapped_column(primary_key=True, index=True)
+    dttm : Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
