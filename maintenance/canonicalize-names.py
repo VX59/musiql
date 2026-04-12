@@ -1,6 +1,6 @@
 from sqlalchemy import update, func
-from musiql_api.models import MusiqlRepository
-from musiql_api.db import async_session
+from database.models import MusiqlRepository
+from database.db import async_session
 import asyncio
 
 async def canonicalize_names():

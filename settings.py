@@ -12,7 +12,8 @@ class Settings(BaseSettings):
     db_port:str
     db_password:str
     db_domain:str
-    api_url:str
+    musiql_api_url:str
+    media_ingestion_api_url:str
 
     aws_region:str = "us-east-2"
     s3_bucket:str = "musiql-s3-bucket"

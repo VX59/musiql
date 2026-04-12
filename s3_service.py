@@ -1,11 +1,9 @@
-# musiql_api/s3_service.py - FIXED VERSION
-
 import boto3
 from botocore.exceptions import ClientError
 from typing import List
 from settings import get_settings
 from fastapi import HTTPException
-import requests
+import os
 import hashlib
 from sqlalchemy.future import select
 from database.models import MusiqlRepository
@@ -93,16 +91,12 @@ class S3Service():
 
     async def upload_object(
         self,
-        stream_url,
+        obj_path,
         key,
-        headers,
         session_maker:sessionmaker
     ):
         hasher = hashlib.sha256()
 
-        response = requests.get(stream_url, headers=headers, stream=True)
-        response.raise_for_status()
-        
         mpu = self.s3_client.create_multipart_upload(Bucket=self.bucket, Key=key)
 
         upload_id = mpu["UploadId"]
@@ -110,46 +104,48 @@ class S3Service():
         parts = []
         part_number = 1
 
-        try:
-            for chunk in response.iter_content(5 * 1024 * 1024):
-                if not chunk:
-                    continue
+        chunk_size = 5 * 1024 * 1024
 
-                hasher.update(chunk)
+        with open(obj_path, "rb") as reader:
+            try:
+                while chunk := reader.read(chunk_size):
+                    hasher.update(chunk)
 
-                part = self.s3_client.upload_part(
+                    part = self.s3_client.upload_part(
+                        Bucket=self.bucket,
+                        Key=key,
+                        PartNumber=part_number,
+                        UploadId=upload_id,
+                        Body=chunk
+                    )
+
+                    parts.append({
+                        "PartNumber": part_number,
+                        "ETag": part["ETag"]
+                    })
+
+                    part_number += 1
+
+                digest = hasher.digest()
+                if await resource_exists(digest, session_maker=session_maker):
+                    raise DuplicateResource()
+
+                self.s3_client.complete_multipart_upload(
                     Bucket=self.bucket,
                     Key=key,
-                    PartNumber=part_number,
                     UploadId=upload_id,
-                    Body=chunk
+                    MultipartUpload={"Parts": parts}
                 )
-
-                parts.append({
-                    "PartNumber": part_number,
-                    "ETag": part["ETag"]
-                })
-
-                part_number += 1
-
-            digest = hasher.digest()
-            if await resource_exists(digest, session_maker=session_maker):
-                raise DuplicateResource()
-
-            self.s3_client.complete_multipart_upload(
-                Bucket=self.bucket,
-                Key=key,
-                UploadId=upload_id,
-                MultipartUpload={"Parts": parts}
-            )
-
-            return digest
-        
-        except Exception as e:
-            # Abort on failure
-            self.s3_client.abort_multipart_upload(
-                Bucket=self.bucket,
-                Key=key,
-                UploadId=upload_id
-            )
-            raise e
+                
+                os.remove(obj_path)
+                
+                return digest
+            
+            except Exception as e:
+                # Abort on failure
+                self.s3_client.abort_multipart_upload(
+                    Bucket=self.bucket,
+                    Key=key,
+                    UploadId=upload_id
+                )
+                raise e

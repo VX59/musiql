@@ -3,7 +3,7 @@ from configparser import ConfigParser
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from functools import lru_cache
 
-from musiql_api.settings import get_settings, Settings
+from settings import get_settings, Settings
 
 @lru_cache
 def get_engine():
