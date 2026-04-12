@@ -32,7 +32,6 @@ async def serve_record(
     session_maker:sessionmaker = Depends(get_session),
     s3_service:S3Service = Depends(S3Service.get_s3_service)
 ):
-
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == uri)
     async with session_maker() as session:
         result = await session.execute(stmt)
@@ -107,7 +106,6 @@ async def advanced_search_songs(
         if records is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no records found")
 
-
     if len(records) == 1 and payload.history_id > 0:
         await update_duration(
             payload.history_id,
@@ -127,7 +125,6 @@ async def advanced_search_songs(
 async def serve_player(settings: Settings = Depends(get_settings)):
     html_path = "./musiql-desktop/index.html"
 
-    # Read the HTML and inject the API URL
     with open(html_path, "r", encoding="utf-8") as f:
         html_content = f.read()
 
@@ -156,7 +153,6 @@ async def sample_song(
     session_maker:sessionmaker = Depends(get_session),
     recommendation_model = Depends(GraphAMP.get_model)
 ):
-
     state = recommendation_model.sample(uri)
 
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == state)
@@ -194,7 +190,6 @@ async def update_duration(
         duration: float,
         session_maker:sessionmaker
     ):
-    
     stmt = update(MusiqlHistory).values(duration_played=duration).where(MusiqlHistory.id == history_id)
     async with session_maker() as session:
         await session.execute(stmt)
