@@ -1,4 +1,3 @@
-# handler.py - Test S3 import without using it
 from mangum import Mangum
 from musiql.server import app
 from musiql_api.musiql_api import router

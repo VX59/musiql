@@ -44,33 +44,16 @@ async def serve_record(
         filename = f"{record.uri}.mp3"
         s3_key = f"musiql_dump/{filename}"
 
-        try:
-            url = s3_service.get_presigned_url(s3_key)
-            body = {"url": url}
-            headers = {
-                "Content-Type": "application/json",
-                "X-history-id": str(history_id)
-            } 
-            return JSONResponse(
-                content=body,
-                headers=headers
-            )
-
-        except Exception as e:
-            print(f"Encountered error during s3 fetch {e} this fallback should only occur in local development")
-            headers = {
-                "Content-Type": "audio/mpeg",
-                "Cache-Control": "no-store",
-                "X-history-id": str(history_id)
-            }
-
-            return FileResponse(
-                path=record.filepath,
-                media_type=record.mime,
-                filename=filename,
-                headers=headers
-            )
-
+        url = s3_service.get_presigned_url(s3_key)
+        body = {"url": url}
+        headers = {
+            "Content-Type": "application/json",
+            "X-history-id": str(history_id)
+        } 
+        return JSONResponse(
+            content=body,
+            headers=headers
+        )
 
 async def select_song(search_term, session_maker:sessionmaker = Depends(get_session)):
     stmt = select(MusiqlRepository).where(MusiqlRepository.title.ilike(f"%{search_term}%"))
