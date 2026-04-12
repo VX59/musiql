@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from settings import Settings, get_settings
 from database.db import get_session
 from s3_service import S3Service
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from database.models import MusiqlRepository, MusiqlHistory
 from sqlalchemy import update, or_
 from sqlalchemy.orm import sessionmaker
@@ -134,10 +134,9 @@ async def log_engagement(
 async def sample_song(
     uri:Optional[str],
     session_maker:sessionmaker = Depends(get_session),
-    recommendation_model = Depends(GraphAMP.get_model)
+    recommendation_api:GraphAMP = Depends(GraphAMP.get_recommendation_api)
 ):
-    state = recommendation_model.sample(uri)
-
+    state = recommendation_api.sample(uri)
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == state)
 
     async with session_maker() as session:
