@@ -26,15 +26,23 @@ async def resource_exists(hash: bytes, session_maker:sessionmaker) -> bool:
     return False
 
 
+s3_service = None
+
 class S3Service():
     def __init__(self):
         self.settings = get_settings()
         self.bucket = self.settings.s3_bucket
         self.s3_client = boto3.client("s3", region_name=self.settings.aws_region)
+        self.chunk_size = 5 * 1024 * 1024
 
     @classmethod
     def get_s3_service(cls):
+        global s3_service
+        if s3_service is None:
+            s3_service = cls()
+
         return cls()
+
 
     def object_exists(self, object_key: str) -> bool:
         try:
@@ -58,6 +66,7 @@ class S3Service():
             print(f"Error listing objects: {e}")
             return []
 
+
     def pull_obj_stream(self, object_key: str):
         try:
             response = self.s3_client.get_object(Bucket=self.bucket, Key=object_key)
@@ -66,11 +75,23 @@ class S3Service():
         except ClientError as e:
             error_code = e.response["Error"]["Code"]
             if error_code == "NoSuchKey":
-                print(f"Object not found: {object_key}")
-                return None
+                raise KeyError(f"Object not found: {object_key}")
             else:
                 print(f"S3 error: {e}")
                 raise Exception(f"failed to fetch from S3: {str(e)}")
+
+
+    def put_object(
+        self,
+        data,
+        key
+    ):
+        self.s3_client.put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=data
+        )
+
 
     def get_presigned_url(self, key:str, expires: int = 3600) -> str:
         try:
@@ -82,6 +103,7 @@ class S3Service():
         except Exception as e:
             raise HTTPException(status_code=404, detail=f"object {key} not found, {e}")
 
+
     def delete_object(self, key):
         self.s3_client.delete_object(
             Bucket=self.bucket,
@@ -89,7 +111,7 @@ class S3Service():
         )
 
 
-    async def upload_object(
+    async def upload_object_from_path(
         self,
         obj_path,
         key,
@@ -104,11 +126,9 @@ class S3Service():
         parts = []
         part_number = 1
 
-        chunk_size = 5 * 1024 * 1024
-
         with open(obj_path, "rb") as reader:
             try:
-                while chunk := reader.read(chunk_size):
+                while chunk := reader.read(self.chunk_size):
                     hasher.update(chunk)
 
                     part = self.s3_client.upload_part(

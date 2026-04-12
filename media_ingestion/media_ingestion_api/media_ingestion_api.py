@@ -11,6 +11,8 @@ from yt_dlp.utils import DownloadError
 import secrets
 import os
 from pydantic import BaseModel, HttpUrl
+from collections import defaultdict
+import hashlib
 
 from s3_service import S3Service
 from database.models import MusiqlRepository
@@ -24,7 +26,46 @@ class MusiqlPayload(BaseModel):
 
 
 class FixUploaderPayload(BaseModel):
-    context:dict
+    context:Dict
+
+
+unknown_uploader_corrections:Dict = None
+unknown_uploader_corrections_key = "unknown_uploader_corrections.json"
+
+unknown_uploads_to_correct = []
+
+def get_unknown_uploader_corrections(s3_service:S3Service) -> Dict:
+    global unknown_uploader_corrections
+    if unknown_uploader_corrections is None:
+        try:
+            file_stream = s3_service.pull_obj_stream(unknown_uploader_corrections_key)
+            unknown_uploader_corrections = json.load(file_stream)
+        except (KeyError, json.JSONDecodeError):
+            unknown_uploader_corrections = defaultdict(dict)
+
+    return unknown_uploader_corrections
+
+
+def commit_unknown_uploader_corrections(
+    s3_service:S3Service, 
+):
+    global unknown_uploader_corrections
+    data_bytes = json.dumps(unknown_uploader_corrections).encode("utf-8")
+    s3_service.put_object(data_bytes, unknown_uploader_corrections_key)    
+
+@dataclass       
+class DownloadedResourceContext:
+    file_hash: str
+    obj_key: str
+    uri: str
+    uploader: str
+    correction: str
+    title: str
+    url: str
+
+    @classmethod
+    def create_from_context_dict(cls, context:Dict):
+        return cls(**context)
 
 
 async def is_known_uploader(name: str, session_maker:sessionmaker) -> bool:
@@ -33,20 +74,6 @@ async def is_known_uploader(name: str, session_maker:sessionmaker) -> bool:
     async with session_maker() as session:
         result = await session.execute(stmt)
         return result.scalar()
-
-
-@dataclass       
-class DownloadedResourceContext:
-    file_hash: str
-    obj_key: str
-    uri: str
-    uploader: str
-    title: str
-    url: str
-
-    @classmethod
-    def create_from_context_dict(cls, context:Dict):
-        return cls(**context)
 
 
 async def download_resource(
@@ -107,6 +134,8 @@ async def download_resource(
     unkown_uploader_context:List[DownloadedResourceContext] = []
     known_uploader_context:List[DownloadedResourceContext] = []
 
+    unknown_uploader_corrections = get_unknown_uploader_corrections(s3_service)
+
     for entry in entries:
         url = entry.get('webpage_url') or f"https://www.youtube.com/watch?v={entry['id']}"
         uri = make_filename()
@@ -121,7 +150,7 @@ async def download_resource(
                 obj_path = f"{outtmpl}.{ext}"
                 obj_key = f"musiql_dump/{uri}.{ext}"
 
-                file_hash = await s3_service.upload_object(
+                file_hash = await s3_service.upload_object_from_path(
                     obj_path,
                     obj_key,
                     session_maker
@@ -134,6 +163,7 @@ async def download_resource(
                     obj_key=obj_key,
                     uri=uri,
                     uploader=uploader,
+                    correction=uploader,
                     title=info.get("title"),
                     url=str(url)
                 )
@@ -142,7 +172,12 @@ async def download_resource(
                     if uploader not in discovered_artists:
                         print(f"unknown uploader {uploader}")
                         discovered_artists.append(uploader)
+
+                        if correction := unknown_uploader_corrections.get(uploader):
+                            context.correction = correction
+
                         unkown_uploader_context.append(context)
+                        unknown_uploads_to_correct.append(uri)
                 else:
                     known_uploader_context.append(context)
 
@@ -212,6 +247,7 @@ async def receive_music(
 async def fix_uploader(
     payload: FixUploaderPayload,
     session_maker:sessionmaker = Depends(get_session),
+    s3_service:S3Service = Depends(S3Service.get_s3_service)
 ):
 
     file_hash = bytes.fromhex(payload.context.get("file_hash"))
@@ -221,7 +257,7 @@ async def fix_uploader(
     new_resource = MusiqlRepository(
         uri=context.uri,
         title=context.title,
-        artists=context.uploader,
+        artists=context.correction,
         filepath=context.obj_key,
         hash=file_hash,
         mime="audio/mpeg",
@@ -230,8 +266,22 @@ async def fix_uploader(
     )
     async with session_maker() as session, session.begin():
         session.add(new_resource)
+
+    unknown_uploader_corrections = get_unknown_uploader_corrections(s3_service)
+
+    uuc_hash = hashlib.sha256(json.dumps(unknown_uploader_corrections).encode("utf-8")).hexdigest()
+
+    if context.uploader != context.correction:
+        unknown_uploader_corrections[context.uploader] = context.correction
     
+    new_uuc_hash = hashlib.sha256(json.dumps(unknown_uploader_corrections).encode("utf-8")).hexdigest()
+
+    unknown_uploads_to_correct.remove(context.uri)
+
+    # only upload if all corrections were made/confirmed AND the mapping actually changed
+    if not unknown_uploads_to_correct and uuc_hash != new_uuc_hash:
+        commit_unknown_uploader_corrections(s3_service)
+
     return JSONResponse(
         content={"status": f"successfully fixed {context.uri}, {context.uploader}"}
     )
-
