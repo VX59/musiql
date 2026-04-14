@@ -7,18 +7,18 @@ from botocore.config import Config
 
 
 class Settings(BaseSettings):
-    db_user:str
-    db_name:str
-    db_port:str
-    db_password:str
-    db_domain:str
-    musiql_api_url:str
-    media_ingestion_api_url:str
+    db_user: str
+    db_name: str
+    db_port: str
+    db_password: str
+    db_domain: str
+    musiql_api_url: str
+    media_ingestion_api_url: str
 
-    aws_region:str = "us-east-2"
-    s3_bucket:str = "musiql-s3-bucket"
-    env:str
-    
+    aws_region: str = "us-east-2"
+    s3_bucket: str = "musiql-s3-bucket"
+    env: str
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
@@ -32,13 +32,13 @@ def get_secret():
     try:
         session = boto3.session.Session()
         client = session.client(
-            service_name='secretsmanager',
+            service_name="secretsmanager",
             region_name=region_name,
-            config=Config(read_timeout=5, connect_timeout=5)  # short timeout
+            config=Config(read_timeout=5, connect_timeout=5),  # short timeout
         )
 
         resp = client.get_secret_value(SecretId=secret_name)
-        secret = json.loads(resp['SecretString'])
+        secret = json.loads(resp["SecretString"])
         print("DEBUG: secret loaded:", secret)
         return secret
     except Exception as e:
@@ -62,7 +62,7 @@ def get_settings() -> Settings:
                 "db_password": "dummy",
                 "db_domain": "dummy",
                 "api_url": "http://localhost:8000",
-                "env": "production"
+                "env": "production",
             }
 
         print("DEBUG: passing to Settings:", secret)

@@ -5,10 +5,11 @@ from functools import lru_cache
 
 from settings import get_settings, Settings
 
+
 @lru_cache
 def get_engine():
 
-    settings:Settings = get_settings()
+    settings: Settings = get_settings()
 
     config = ConfigParser()
     config.read("alembic.ini")
@@ -18,6 +19,7 @@ def get_engine():
     engine = create_async_engine(DATABASE_URL, echo=True)
 
     return engine
+
 
 @lru_cache
 def get_session():

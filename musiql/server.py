@@ -6,6 +6,7 @@ app = FastAPI()
 
 app.include_router(router)
 
+
 def main():
     uvicorn.run(
         "musiql.server:app",

@@ -8,16 +8,17 @@ import hashlib
 from sqlalchemy.future import select
 from database.models import MusiqlRepository
 from sqlalchemy.orm import sessionmaker
+from functools import lru_cache
+
 
 class DuplicateResource(Exception):
     pass
 
 
-async def resource_exists(hash: bytes, session_maker:sessionmaker) -> bool:
+async def resource_exists(hash: bytes, session_maker: sessionmaker) -> bool:
     stmt = select(MusiqlRepository).where(MusiqlRepository.hash == hash)
 
     async with session_maker() as session:
-
         result = await session.execute(stmt)
         record = result.scalars().first()
         if record is not None:
@@ -26,23 +27,12 @@ async def resource_exists(hash: bytes, session_maker:sessionmaker) -> bool:
     return False
 
 
-s3_service = None
-
-class S3Service():
+class S3Service:
     def __init__(self):
         self.settings = get_settings()
         self.bucket = self.settings.s3_bucket
         self.s3_client = boto3.client("s3", region_name=self.settings.aws_region)
         self.chunk_size = 5 * 1024 * 1024
-
-    @classmethod
-    def get_s3_service(cls):
-        global s3_service
-        if s3_service is None:
-            s3_service = cls()
-
-        return cls()
-
 
     def object_exists(self, object_key: str) -> bool:
         try:
@@ -53,19 +43,18 @@ class S3Service():
                 return False
             raise
 
-    def list_objects(self, prefix: str = "musiql_dump", max_keys: int = 100) -> List[str]:
+    def list_objects(
+        self, prefix: str = "musiql_dump", max_keys: int = 100
+    ) -> List[str]:
         try:
             print(f"bucket {self.bucket} and prefix {prefix}")
             response = self.s3_client.list_objects_v2(
-                Bucket=self.bucket,
-                Prefix=prefix,
-                MaxKeys=max_keys
+                Bucket=self.bucket, Prefix=prefix, MaxKeys=max_keys
             )
             return [obj["Key"] for obj in response.get("Contents", [])]
         except ClientError as e:
             print(f"Error listing objects: {e}")
             return []
-
 
     def pull_obj_stream(self, object_key: str):
         try:
@@ -80,43 +69,23 @@ class S3Service():
                 print(f"S3 error: {e}")
                 raise Exception(f"failed to fetch from S3: {str(e)}")
 
+    def put_object(self, data, key):
+        self.s3_client.put_object(Bucket=self.bucket, Key=key, Body=data)
 
-    def put_object(
-        self,
-        data,
-        key
-    ):
-        self.s3_client.put_object(
-            Bucket=self.bucket,
-            Key=key,
-            Body=data
-        )
-
-
-    def get_presigned_url(self, key:str, expires: int = 3600) -> str:
+    def get_presigned_url(self, key: str, expires: int = 3600) -> str:
         try:
             return self.s3_client.generate_presigned_url(
                 ClientMethod="get_object",
                 Params={"Bucket": self.bucket, "Key": key},
-                ExpiresIn=expires
+                ExpiresIn=expires,
             )
         except Exception as e:
             raise HTTPException(status_code=404, detail=f"object {key} not found, {e}")
 
-
     def delete_object(self, key):
-        self.s3_client.delete_object(
-            Bucket=self.bucket,
-            Key=key
-        )
+        self.s3_client.delete_object(Bucket=self.bucket, Key=key)
 
-
-    async def upload_object_from_path(
-        self,
-        obj_path,
-        key,
-        session_maker:sessionmaker
-    ):
+    async def upload_object_from_path(self, obj_path, key, session_maker: sessionmaker):
         hasher = hashlib.sha256()
 
         mpu = self.s3_client.create_multipart_upload(Bucket=self.bucket, Key=key)
@@ -136,13 +105,10 @@ class S3Service():
                         Key=key,
                         PartNumber=part_number,
                         UploadId=upload_id,
-                        Body=chunk
+                        Body=chunk,
                     )
 
-                    parts.append({
-                        "PartNumber": part_number,
-                        "ETag": part["ETag"]
-                    })
+                    parts.append({"PartNumber": part_number, "ETag": part["ETag"]})
 
                     part_number += 1
 
@@ -154,18 +120,21 @@ class S3Service():
                     Bucket=self.bucket,
                     Key=key,
                     UploadId=upload_id,
-                    MultipartUpload={"Parts": parts}
+                    MultipartUpload={"Parts": parts},
                 )
-                
+
                 os.remove(obj_path)
-                
+
                 return digest
-            
+
             except Exception as e:
                 # Abort on failure
                 self.s3_client.abort_multipart_upload(
-                    Bucket=self.bucket,
-                    Key=key,
-                    UploadId=upload_id
+                    Bucket=self.bucket, Key=key, UploadId=upload_id
                 )
                 raise e
+
+
+@lru_cache
+def get_s3_service() -> S3Service:
+    return S3Service()

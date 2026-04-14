@@ -18,6 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 def main():
     uvicorn.run(
         "media_ingestion.media_ingestion.server:app",

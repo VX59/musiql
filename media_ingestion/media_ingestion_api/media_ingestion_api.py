@@ -14,7 +14,7 @@ from pydantic import BaseModel, HttpUrl
 from collections import defaultdict
 import hashlib
 
-from s3_service import S3Service
+from s3_service import S3Service, get_s3_service
 from database.models import MusiqlRepository
 from database.db import get_session
 
@@ -26,15 +26,16 @@ class MusiqlPayload(BaseModel):
 
 
 class FixUploaderPayload(BaseModel):
-    context:Dict
+    context: Dict
 
 
-unknown_uploader_corrections:Dict = None
+unknown_uploader_corrections: Dict = None
 unknown_uploader_corrections_key = "unknown_uploader_corrections.json"
 
 unknown_uploads_to_correct = []
 
-def get_unknown_uploader_corrections(s3_service:S3Service) -> Dict:
+
+def get_unknown_uploader_corrections(s3_service: S3Service) -> Dict:
     global unknown_uploader_corrections
     if unknown_uploader_corrections is None:
         try:
@@ -47,13 +48,14 @@ def get_unknown_uploader_corrections(s3_service:S3Service) -> Dict:
 
 
 def commit_unknown_uploader_corrections(
-    s3_service:S3Service, 
+    s3_service: S3Service,
 ):
     global unknown_uploader_corrections
     data_bytes = json.dumps(unknown_uploader_corrections).encode("utf-8")
-    s3_service.put_object(data_bytes, unknown_uploader_corrections_key)    
+    s3_service.put_object(data_bytes, unknown_uploader_corrections_key)
 
-@dataclass       
+
+@dataclass
 class DownloadedResourceContext:
     file_hash: str
     obj_key: str
@@ -64,11 +66,11 @@ class DownloadedResourceContext:
     url: str
 
     @classmethod
-    def create_from_context_dict(cls, context:Dict):
+    def create_from_context_dict(cls, context: Dict):
         return cls(**context)
 
 
-async def is_known_uploader(name: str, session_maker:sessionmaker) -> bool:
+async def is_known_uploader(name: str, session_maker: sessionmaker) -> bool:
     stmt = select(exists().where(MusiqlRepository.artists.ilike(f"%{name}%")))
 
     async with session_maker() as session:
@@ -77,71 +79,68 @@ async def is_known_uploader(name: str, session_maker:sessionmaker) -> bool:
 
 
 async def download_resource(
-    url:HttpUrl,
-    session_maker:sessionmaker,
-    s3_service:S3Service
-) -> Optional[Tuple[
-    List[DownloadedResourceContext],
-    List[DownloadedResourceContext]]
-]:
+    url: HttpUrl, session_maker: sessionmaker, s3_service: S3Service
+) -> Optional[Tuple[List[DownloadedResourceContext], List[DownloadedResourceContext]]]:
     ext = "mp3"
     outdir = "music_dump"
 
     def make_filename():
         uri = f"{secrets.randbelow(0x1000000):06x}"
         return uri
-    
+
     uri = make_filename()
     outtmpl = os.path.join(outdir, uri)
 
     ydl_checking_opts = {
-        'extract_flat': 'in_playlist',
-        'skip_download': True,
+        "extract_flat": "in_playlist",
+        "skip_download": True,
     }
 
-    with YoutubeDL(ydl_checking_opts) as ydl: 
+    with YoutubeDL(ydl_checking_opts) as ydl:
         try:
             info = ydl.extract_info(str(url), download=False)
-        except DownloadError as e:
+        except DownloadError:
             print(f"media unavailable {url}")
             return None
 
     ydl_opts = {
-        'outtmpl': outtmpl,
-        'format': 'bestaudio/best',
-        'writethumbnail': True,
-        'postprocessors': [
+        "outtmpl": outtmpl,
+        "format": "bestaudio/best",
+        "writethumbnail": True,
+        "postprocessors": [
             {
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': ext,
-            'preferredquality': '192',
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": ext,
+                "preferredquality": "192",
             },
             {
-                'key': 'EmbedThumbnail',
-            }
+                "key": "EmbedThumbnail",
+            },
         ],
-        'noplaylist' : True
+        "noplaylist": True,
     }
 
     entries = []
-    if info.get('_type') == 'playlist':
-        entries = info['entries']
+    if info.get("_type") == "playlist":
+        entries = info["entries"]
     else:
         entries = [info]
 
     discovered_artists = []
 
-    unkown_uploader_context:List[DownloadedResourceContext] = []
-    known_uploader_context:List[DownloadedResourceContext] = []
+    unkown_uploader_context: List[DownloadedResourceContext] = []
+    known_uploader_context: List[DownloadedResourceContext] = []
 
     unknown_uploader_corrections = get_unknown_uploader_corrections(s3_service)
 
     for entry in entries:
-        url = entry.get('webpage_url') or f"https://www.youtube.com/watch?v={entry['id']}"
+        url = (
+            entry.get("webpage_url") or f"https://www.youtube.com/watch?v={entry['id']}"
+        )
         uri = make_filename()
         outtmpl = os.path.join(outdir, uri)
 
-        ydl_opts['outtmpl'] = outtmpl
+        ydl_opts["outtmpl"] = outtmpl
 
         with YoutubeDL(ydl_opts) as ydl:
             try:
@@ -151,9 +150,7 @@ async def download_resource(
                 obj_key = f"musiql_dump/{uri}.{ext}"
 
                 file_hash = await s3_service.upload_object_from_path(
-                    obj_path,
-                    obj_key,
-                    session_maker
+                    obj_path, obj_key, session_maker
                 )
 
                 uploader = info.get("uploader")
@@ -165,7 +162,7 @@ async def download_resource(
                     uploader=uploader,
                     correction=uploader,
                     title=info.get("title"),
-                    url=str(url)
+                    url=str(url),
                 )
 
                 if not await is_known_uploader(uploader, session_maker):
@@ -185,23 +182,22 @@ async def download_resource(
                 print(e)
                 continue
 
-    return known_uploader_context, unkown_uploader_context 
+    return known_uploader_context, unkown_uploader_context
 
 
 @router.post("/media_ingestion/try/receive", response_model=None)
 async def receive_music(
     payload: MusiqlPayload,
-    session_maker:sessionmaker = Depends(get_session),
-    s3_service:S3Service = Depends(S3Service.get_s3_service)    
+    session_maker: sessionmaker = Depends(get_session),
+    s3_service: S3Service = Depends(get_s3_service),
 ):
     result = await download_resource(payload.url, session_maker, s3_service)
-    known_uploader_context:List[DownloadedResourceContext] = result[0]
-    unknown_uploader_context:List[DownloadedResourceContext] = result[1]
+    known_uploader_context: List[DownloadedResourceContext] = result[0]
+    unknown_uploader_context: List[DownloadedResourceContext] = result[1]
 
     for context in known_uploader_context:
-
         file_hash = bytes.fromhex(context.file_hash)
-        
+
         new_resource = MusiqlRepository(
             uri=context.uri,
             title=context.title,
@@ -210,44 +206,36 @@ async def receive_music(
             hash=file_hash,
             mime="audio/mpeg",
             metadata_json={},
-            url=str(payload.url)
+            url=str(payload.url),
         )
         async with session_maker() as session, session.begin():
             session.add(new_resource)
 
-    headers = { "Content-Type": "application/json" } 
-    
-    if unknown_uploader_context:
+    headers = {"Content-Type": "application/json"}
 
+    if unknown_uploader_context:
         print(unknown_uploader_context)
 
         serialized_unknown_uploader_context = json.loads(
-            json.dumps(
-                [asdict(ctx) for ctx in unknown_uploader_context]
-            )
+            json.dumps([asdict(ctx) for ctx in unknown_uploader_context])
         )
 
         return JSONResponse(
             content={
                 "needs_fix": True,
-                "unknown_uploaders": serialized_unknown_uploader_context 
+                "unknown_uploaders": serialized_unknown_uploader_context,
             },
             headers=headers,
         )
     else:
-        return JSONResponse(
-            content={
-                "needs_fix": False
-            },
-            headers=headers
-        )
+        return JSONResponse(content={"needs_fix": False}, headers=headers)
 
 
 @router.post("/media_ingestion/fix_uploader", response_model=None)
 async def fix_uploader(
     payload: FixUploaderPayload,
-    session_maker:sessionmaker = Depends(get_session),
-    s3_service:S3Service = Depends(S3Service.get_s3_service)
+    session_maker: sessionmaker = Depends(get_session),
+    s3_service: S3Service = Depends(get_s3_service),
 ):
 
     file_hash = bytes.fromhex(payload.context.get("file_hash"))
@@ -262,19 +250,23 @@ async def fix_uploader(
         hash=file_hash,
         mime="audio/mpeg",
         metadata_json={},
-        url=context.url
+        url=context.url,
     )
     async with session_maker() as session, session.begin():
         session.add(new_resource)
 
     unknown_uploader_corrections = get_unknown_uploader_corrections(s3_service)
 
-    uuc_hash = hashlib.sha256(json.dumps(unknown_uploader_corrections).encode("utf-8")).hexdigest()
+    uuc_hash = hashlib.sha256(
+        json.dumps(unknown_uploader_corrections).encode("utf-8")
+    ).hexdigest()
 
     if context.uploader != context.correction:
         unknown_uploader_corrections[context.uploader] = context.correction
-    
-    new_uuc_hash = hashlib.sha256(json.dumps(unknown_uploader_corrections).encode("utf-8")).hexdigest()
+
+    new_uuc_hash = hashlib.sha256(
+        json.dumps(unknown_uploader_corrections).encode("utf-8")
+    ).hexdigest()
 
     unknown_uploads_to_correct.remove(context.uri)
 
