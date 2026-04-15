@@ -160,10 +160,10 @@ async def sample_song(
     session_maker: sessionmaker = Depends(get_session),
     recommendation_api: GraphAMP = Depends(get_recommendation_api),
 ):
-    states:List[str] = recommendation_api.preempt(uri)
+    states: List[str] = recommendation_api.preempt(uri)
     if not states:
         return []
-    
+
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri.in_(states))
 
     async with session_maker() as session:
@@ -179,11 +179,7 @@ async def sample_song(
         ordered_records = [by_uri[u] for u in states if u in by_uri]
 
         content = [
-            {
-                "uri": record.uri,
-                "title": record.title,
-                "artists": record.artists
-            }
+            {"uri": record.uri, "title": record.title, "artists": record.artists}
             for record in ordered_records
         ]
 

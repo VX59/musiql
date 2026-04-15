@@ -2,7 +2,7 @@ import random
 import networkx as nx
 import pickle
 from typing import Optional, List
-from functools import lru_cache, reduce
+from functools import lru_cache
 
 from s3_service import S3Service, get_s3_service
 
@@ -26,7 +26,7 @@ class GraphAMP:
 
         return next_model_state
 
-    def preempt(self, uri: Optional[str], n:int = 20) -> List[str]:
+    def preempt(self, uri: Optional[str], n: int = 20) -> List[str]:
         samples = []
         for _ in range(n):
             uri = self.sample(uri)
