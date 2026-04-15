@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 from datetime import datetime, timezone
 from .GraphAMP import GraphAMP, get_recommendation_api
-from typing import Optional
+from typing import List
 
 router = APIRouter()
 
@@ -24,6 +24,17 @@ class AdvancedSearchPayload(BaseModel):
 class SkipPayload(BaseModel):
     history_id: int
     duration_played: float
+
+
+async def track_history(uri: str, session):
+    new_record = MusiqlHistory(
+        uri=uri, duration_played=1.0, listened_at=datetime.now(timezone.utc)
+    )
+
+    session.add(new_record)
+    await session.commit()
+
+    return new_record.id
 
 
 @router.get("/musiql/serve/{uri}")
@@ -118,6 +129,19 @@ async def serve_player(settings: Settings = Depends(get_settings)):
     return HTMLResponse(content=html_content, media_type="text/html")
 
 
+async def update_duration(
+    history_id: int, duration: float, session_maker: sessionmaker
+):
+    stmt = (
+        update(MusiqlHistory)
+        .values(duration_played=duration)
+        .where(MusiqlHistory.id == history_id)
+    )
+    async with session_maker() as session:
+        await session.execute(stmt)
+        await session.commit()
+
+
 @router.post("/musiql/log/engagement/")
 async def log_engagement(
     skip_payload: SkipPayload, session_maker: sessionmaker = Depends(get_session)
@@ -132,49 +156,35 @@ async def log_engagement(
 
 @router.get("/musiql/sample/{uri}")
 async def sample_song(
-    uri: Optional[str],
+    uri: str,
     session_maker: sessionmaker = Depends(get_session),
     recommendation_api: GraphAMP = Depends(get_recommendation_api),
 ):
-    state = recommendation_api.sample(uri)
-    stmt = select(MusiqlRepository).where(MusiqlRepository.uri == state)
+    states:List[str] = recommendation_api.preempt(uri)
+    if not states:
+        return []
+    
+    stmt = select(MusiqlRepository).where(MusiqlRepository.uri.in_(states))
 
     async with session_maker() as session:
         result = await session.execute(stmt)
-        sample_record = result.scalars().first()
-        if not sample_record:
+        sample_records = result.scalars().all()
+
+        if not sample_records:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="no record found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="no records found"
             )
 
-        response = {
-            "uri": sample_record.uri,
-            "title": sample_record.title,
-            "artists": sample_record.artists,
-        }
+        by_uri = {r.uri: r for r in sample_records}
+        ordered_records = [by_uri[u] for u in states if u in by_uri]
 
-        return response
+        content = [
+            {
+                "uri": record.uri,
+                "title": record.title,
+                "artists": record.artists
+            }
+            for record in ordered_records
+        ]
 
-
-async def track_history(uri: str, session):
-    new_record = MusiqlHistory(
-        uri=uri, duration_played=1.0, listened_at=datetime.now(timezone.utc)
-    )
-
-    session.add(new_record)
-    await session.commit()
-
-    return new_record.id
-
-
-async def update_duration(
-    history_id: int, duration: float, session_maker: sessionmaker
-):
-    stmt = (
-        update(MusiqlHistory)
-        .values(duration_played=duration)
-        .where(MusiqlHistory.id == history_id)
-    )
-    async with session_maker() as session:
-        await session.execute(stmt)
-        await session.commit()
+        return content
