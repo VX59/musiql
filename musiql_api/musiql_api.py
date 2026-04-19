@@ -88,7 +88,7 @@ async def advanced_search_songs(
             MusiqlRepository.title.ilike(f"%{payload.search_term}%"),
             MusiqlRepository.artists.ilike(f"%{payload.search_term}%"),
         )
-    )
+    ).order_by(MusiqlRepository.created.desc())
 
     async with session_maker() as session:
         result = await session.execute(stmt)
