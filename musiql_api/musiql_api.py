@@ -28,9 +28,9 @@ class SkipPayload(BaseModel):
     duration_played: float
 
 
-async def track_history(uri: str, session):
+async def track_history(uri: str, user_id: str, session):
     new_record = MusiqlHistory(
-        uri=uri, duration_played=1.0, listened_at=datetime.now(timezone.utc)
+        uri=uri, user_id=user_id, duration_played=1.0, listened_at=datetime.now(timezone.utc)
     )
 
     session.add(new_record)
@@ -56,7 +56,7 @@ async def serve_record(
                 status_code=status.HTTP_404_NOT_FOUND, detail="record not found"
             )
 
-        history_id = await track_history(record.uri, session)
+        history_id = await track_history(record.uri, user_id, session)
         filename = f"{record.uri}.mp3"
         s3_key = f"musiql_dump/{filename}"
 

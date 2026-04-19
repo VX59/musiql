@@ -34,6 +34,7 @@ class MusiqlHistory(Base):
     uri: Mapped[str] = mapped_column(
         ForeignKey("music_repository.uri", ondelete="CASCADE"), nullable=False
     )
+    user_id: Mapped[str] = mapped_column(nullable=True)
     duration_played: Mapped[float] = mapped_column(nullable=False)
     listened_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -59,6 +60,7 @@ class Models(Base):
     uri: Mapped[str] = mapped_column(nullable=False, primary_key=True)
     user_id: Mapped[str] = mapped_column(nullable=False)
     model_name: Mapped[str] = mapped_column(nullable=False)
+    algorithm: Mapped[str] = mapped_column(nullable=True)
 
 
 class ModelUpdates(Base):
