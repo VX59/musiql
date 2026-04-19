@@ -9,10 +9,12 @@ from sqlalchemy import update, or_
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 from datetime import datetime, timezone
-from .GraphAMP import GraphAMP, get_recommendation_api
+from .models_api import GraphAMP, get_recommendation_api
 from typing import List
 
-router = APIRouter()
+from authsvc_api import get_current_user
+
+musiql_api_router = APIRouter()
 
 
 class AdvancedSearchPayload(BaseModel):
@@ -37,11 +39,12 @@ async def track_history(uri: str, session):
     return new_record.id
 
 
-@router.get("/musiql/serve/{uri}")
+@musiql_api_router.get("/musiql/serve/{uri}")
 async def serve_record(
     uri: str,
     session_maker: sessionmaker = Depends(get_session),
     s3_service: S3Service = Depends(get_s3_service),
+    user_id: str = Depends(get_current_user),
 ):
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == uri)
     async with session_maker() as session:
@@ -78,17 +81,22 @@ async def select_song(search_term, session_maker: sessionmaker = Depends(get_ses
     return record
 
 
-@router.post("/musiql/search/advanced", response_model=None)
+@musiql_api_router.post("/musiql/search/advanced", response_model=None)
 async def advanced_search_songs(
     payload: AdvancedSearchPayload = None,
     session_maker: sessionmaker = Depends(get_session),
+    user_id: str = Depends(get_current_user),
 ):
-    stmt = select(MusiqlRepository).where(
-        or_(
-            MusiqlRepository.title.ilike(f"%{payload.search_term}%"),
-            MusiqlRepository.artists.ilike(f"%{payload.search_term}%"),
+    stmt = (
+        select(MusiqlRepository)
+        .where(
+            or_(
+                MusiqlRepository.title.ilike(f"%{payload.search_term}%"),
+                MusiqlRepository.artists.ilike(f"%{payload.search_term}%"),
+            )
         )
-    ).order_by(MusiqlRepository.created.desc())
+        .order_by(MusiqlRepository.created.desc())
+    )
 
     async with session_maker() as session:
         result = await session.execute(stmt)
@@ -114,8 +122,10 @@ async def advanced_search_songs(
     return response
 
 
-@router.get("/musiql/player/", response_class=HTMLResponse)
-async def serve_player(settings: Settings = Depends(get_settings)):
+@musiql_api_router.get("/musiql/player/", response_class=HTMLResponse)
+async def serve_player(
+    settings: Settings = Depends(get_settings),
+):
     html_path = "./musiql-desktop/index.html"
 
     with open(html_path, "r", encoding="utf-8") as f:
@@ -142,9 +152,11 @@ async def update_duration(
         await session.commit()
 
 
-@router.post("/musiql/log/engagement/")
+@musiql_api_router.post("/musiql/log/engagement/")
 async def log_engagement(
-    skip_payload: SkipPayload, session_maker: sessionmaker = Depends(get_session)
+    skip_payload: SkipPayload,
+    session_maker: sessionmaker = Depends(get_session),
+    user_id: str = Depends(get_current_user),
 ):
     await update_duration(
         skip_payload.history_id,
@@ -154,11 +166,12 @@ async def log_engagement(
     return {"status": "ok"}
 
 
-@router.get("/musiql/sample/{uri}")
+@musiql_api_router.get("/musiql/sample/{uri}")
 async def sample_song(
     uri: str,
     session_maker: sessionmaker = Depends(get_session),
     recommendation_api: GraphAMP = Depends(get_recommendation_api),
+    user_id: str = Depends(get_current_user),
 ):
     states: List[str] = recommendation_api.preempt(uri)
     if not states:

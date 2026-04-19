@@ -40,6 +40,27 @@ class MusiqlHistory(Base):
     )
 
 
+class Users(Base):
+    __tablename__ = "users"
+    uri: Mapped[str] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(nullable=False)
+    password: Mapped[bytes] = mapped_column(nullable=False)
+    access_level: Mapped[int] = mapped_column(nullable=False)
+
+
+class UserLirbary(Base):
+    __tablename__ = "libraries"
+    user_id: Mapped[str] = mapped_column(primary_key=True)
+    record_id: Mapped[str] = mapped_column(primary_key=True)
+
+
+class Models(Base):
+    __tablename__ = "models"
+    uri: Mapped[str] = mapped_column(nullable=False, primary_key=True)
+    user_id: Mapped[str] = mapped_column(nullable=False)
+    model_name: Mapped[str] = mapped_column(nullable=False)
+
+
 class ModelUpdates(Base):
     __tablename__ = "model_updates"
     id: Mapped[int] = mapped_column(primary_key=True, index=True)

@@ -8,15 +8,17 @@ from dataclasses import dataclass, asdict
 import json
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
-import secrets
+
 import os
 from pydantic import BaseModel, HttpUrl
 from collections import defaultdict
 import hashlib
 
+from utility import make_uri
 from s3_service import S3Service, get_s3_service
 from database.models import MusiqlRepository
 from database.db import get_session
+from authsvc_api import get_current_user
 
 router = APIRouter()
 
@@ -84,11 +86,7 @@ async def download_resource(
     ext = "mp3"
     outdir = "music_dump"
 
-    def make_filename():
-        uri = f"{secrets.randbelow(0x1000000):06x}"
-        return uri
-
-    uri = make_filename()
+    uri = make_uri()
     outtmpl = os.path.join(outdir, uri)
 
     ydl_checking_opts = {
@@ -137,7 +135,7 @@ async def download_resource(
         url = (
             entry.get("webpage_url") or f"https://www.youtube.com/watch?v={entry['id']}"
         )
-        uri = make_filename()
+        uri = make_uri()
         outtmpl = os.path.join(outdir, uri)
 
         ydl_opts["outtmpl"] = outtmpl
@@ -190,6 +188,7 @@ async def receive_music(
     payload: MusiqlPayload,
     session_maker: sessionmaker = Depends(get_session),
     s3_service: S3Service = Depends(get_s3_service),
+    user_id: str = Depends(get_current_user),
 ):
     result = await download_resource(payload.url, session_maker, s3_service)
     known_uploader_context: List[DownloadedResourceContext] = result[0]
@@ -236,6 +235,7 @@ async def fix_uploader(
     payload: FixUploaderPayload,
     session_maker: sessionmaker = Depends(get_session),
     s3_service: S3Service = Depends(get_s3_service),
+    user_id: str = Depends(get_current_user),
 ):
 
     file_hash = bytes.fromhex(payload.context.get("file_hash"))
