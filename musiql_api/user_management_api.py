@@ -7,7 +7,7 @@ from sqlalchemy.future import select
 import hashlib
 from database.models import Users
 from utility import make_uri
-from authsvc_api import create_token, get_current_user
+from authtoken_api import create_token, get_current_user
 
 user_management_router = APIRouter()
 
@@ -19,20 +19,21 @@ class CreateUserPayload(BaseModel):
 
 
 class LoginUserPayload(BaseModel):
-    username: str
-    password: str
+    username:str
+    password:str
 
 
 @user_management_router.post("/musiql/login/user", response_model=None)
 async def user_login(
-    payload: LoginUserPayload,
+    payload:LoginUserPayload,
     session_maker: sessionmaker = Depends(get_session),
 ):
-
+    
     pword_hash = hashlib.sha256(payload.password.encode("utf-8")).digest()
 
     stmt = select(Users.uri).where(
-        Users.username == payload.username, Users.password == pword_hash
+        Users.username == payload.username,
+        Users.password == pword_hash
     )
 
     async with session_maker() as session:
@@ -40,7 +41,9 @@ async def user_login(
         user = result.scalar_one_or_none()
 
         if not user:
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+            raise HTTPException(
+                status_code=401, detail="Invalid credentials"
+            )
 
         token = create_token(user)
 
@@ -51,7 +54,8 @@ async def user_login(
 async def create_user(
     payload: CreateUserPayload,
     session_maker: sessionmaker = Depends(get_session),
-    user_id=Depends(get_current_user),
+    user_id = Depends(get_current_user)
+    
 ):
     uri = f"{payload.username}-{make_uri()}"
 
@@ -60,7 +64,7 @@ async def create_user(
             uri=uri,
             username=payload.username,
             password=hashlib.sha256(payload.password.encode("utf-8")).digest(),
-            access_level=payload.access_level,
+            access_level = payload.access_level
         )
 
         async with session_maker() as session, session.begin():
@@ -72,5 +76,6 @@ async def create_user(
 
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
