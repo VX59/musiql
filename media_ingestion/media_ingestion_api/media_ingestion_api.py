@@ -18,7 +18,7 @@ from utility import make_uri
 from s3_service import S3Service, get_s3_service
 from database.models import MusiqlRepository
 from database.db import get_session
-from authsvc_api import get_current_user
+from authtoken_api import get_current_user
 
 router = APIRouter()
 
@@ -188,7 +188,7 @@ async def receive_music(
     payload: MusiqlPayload,
     session_maker: sessionmaker = Depends(get_session),
     s3_service: S3Service = Depends(get_s3_service),
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_current_user)
 ):
     result = await download_resource(payload.url, session_maker, s3_service)
     known_uploader_context: List[DownloadedResourceContext] = result[0]
@@ -235,7 +235,7 @@ async def fix_uploader(
     payload: FixUploaderPayload,
     session_maker: sessionmaker = Depends(get_session),
     s3_service: S3Service = Depends(get_s3_service),
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_current_user)
 ):
 
     file_hash = bytes.fromhex(payload.context.get("file_hash"))
