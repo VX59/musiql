@@ -4,13 +4,14 @@ from settings import Settings, get_settings
 from database.db import get_session
 from s3_service import S3Service, get_s3_service
 from fastapi.responses import HTMLResponse, JSONResponse
-from database.models import MusiqlRepository, MusiqlHistory
-from sqlalchemy import update, or_
+from database.models import MusiqlRepository, MusiqlHistory, Users, UserLirbary
+from sqlalchemy import update, or_, Select, delete
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 from datetime import datetime, timezone
 from .models_api import GraphAMP, get_recommendation_api
-from typing import List
+from typing import List, Optional
+from enum import Enum
 
 from authtoken_api import get_current_user
 
@@ -81,18 +82,43 @@ async def select_song(search_term, session_maker: sessionmaker = Depends(get_ses
     return record
 
 
+class QueryLang(str, Enum):
+    library = "library"
+
+
+def parse_search_query(search_term:str, user_id) -> Optional[Select]:
+    commands = [term[1:] for term in search_term.split(" ") if term[0] == '@']
+    for command in commands:
+        match command:
+            case QueryLang.library:
+                stmt = (
+                    select(MusiqlRepository)
+                    .select_from(UserLirbary)
+                    .join(MusiqlRepository, UserLirbary.record_id == MusiqlRepository.uri)
+                    .where(UserLirbary.user_id == user_id)
+                ).order_by(MusiqlRepository.created.desc())
+
+                return stmt, QueryLang.library
+
+
 @musiql_api_router.post("/musiql/search/advanced", response_model=None)
 async def advanced_search_songs(
     payload: AdvancedSearchPayload = None,
     session_maker: sessionmaker = Depends(get_session),
     user_id: str = Depends(get_current_user)
 ):
-    stmt = select(MusiqlRepository).where(
-        or_(
-            MusiqlRepository.title.ilike(f"%{payload.search_term}%"),
-            MusiqlRepository.artists.ilike(f"%{payload.search_term}%"),
-        )
-    ).order_by(MusiqlRepository.created.desc())
+    
+    if (result := parse_search_query(payload.search_term, user_id)) is not None:
+        stmt, command = result
+    else:
+        command = None
+        stmt = select(MusiqlRepository).where(
+            or_(
+                MusiqlRepository.title.ilike(f"%{payload.search_term}%"),
+                MusiqlRepository.artists.ilike(f"%{payload.search_term}%"),
+                MusiqlRepository.added_by.ilike(f"%{payload.search_term}%"),
+            )
+        ).order_by(MusiqlRepository.created.desc())
 
     async with session_maker() as session:
         result = await session.execute(stmt)
@@ -103,17 +129,53 @@ async def advanced_search_songs(
                 status_code=status.HTTP_404_NOT_FOUND, detail="no records found"
             )
 
+    if command != QueryLang.library:
+        identity_stmt = (
+            select(MusiqlRepository)
+            .select_from(UserLirbary)
+            .join(MusiqlRepository, UserLirbary.record_id == MusiqlRepository.uri)
+            .where(
+                UserLirbary.user_id == user_id,
+                or_(
+                    MusiqlRepository.title.ilike(f"%{payload.search_term}%"),
+                    MusiqlRepository.artists.ilike(f"%{payload.search_term}%"),
+                    MusiqlRepository.added_by.ilike(f"%{payload.search_term}%"),
+                )
+            ).order_by(MusiqlRepository.created.desc())
+        )
+
+        async with session_maker() as session:
+            result = await session.execute(identity_stmt)
+            identity_records = result.scalars().all()
+
+            identity_uris = [r.uri for r in identity_records]
+            
+            in_identity = [
+                True if uri in identity_uris else False
+                for uri in
+                [r.uri for r in records]
+            ]
+
+        search_context = list(zip(records, in_identity))                    
+
+        response = {
+            "num_results": len(records),
+            "results": [
+                {"uri": r.uri, "title": r.title, "artists": r.artists, "added_by": r.added_by, "in_library": in_identity} for r, in_identity in search_context
+            ],
+        }
+    else:
+        response = {
+            "num_results": len(records),
+            "results": [
+                {"uri": r.uri, "title": r.title, "artists": r.artists, "added_by": r.added_by, "in_library": True} for r in records
+            ],
+        }
+
     if len(records) == 1 and payload.history_id > 0:
         await update_duration(
             payload.history_id, payload.duration_played, session_maker=session_maker
         )
-
-    response = {
-        "num_results": len(records),
-        "results": [
-            {"uri": r.uri, "title": r.title, "artists": r.artists} for r in records
-        ],
-    }
 
     return response
 
@@ -158,6 +220,40 @@ async def log_engagement(
         session_maker=session_maker,
     )
     return {"status": "ok"}
+
+
+@musiql_api_router.get("/musiql/library/add/{uri}")
+async def add_to_library(
+    uri: str,
+    session_maker: sessionmaker = Depends(get_session),
+    user_id: str = Depends(get_current_user)
+):
+    new_record = UserLirbary(
+        user_id=user_id,
+        record_id=uri
+    )
+
+    async with session_maker() as session, session.begin():
+        session.add(new_record)
+    
+    return {"status": f"successfully added {uri} to {user_id}'s library"}
+
+
+@musiql_api_router.get("/musiql/library/remove/{uri}")
+async def remove_from_library(
+    uri: str,
+    session_maker: sessionmaker = Depends(get_session),
+    user_id: str = Depends(get_current_user)
+):
+    stmt = delete(UserLirbary).where(
+        UserLirbary.user_id == user_id,
+        UserLirbary.record_id == uri
+    )
+
+    async with session_maker() as session, session.begin():
+        await session.execute(stmt)
+    
+    return {"status": f"successfully removed {uri} from {user_id}'s library"}
 
 
 @musiql_api_router.get("/musiql/sample/{uri}")

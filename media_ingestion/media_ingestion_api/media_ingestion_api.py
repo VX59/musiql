@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from sqlalchemy import exists
+from sqlalchemy import exists, delete
 from sqlalchemy.future import select
 from sqlalchemy.orm import sessionmaker
 from typing import List, Tuple, Dict, Optional
@@ -16,7 +16,7 @@ import hashlib
 
 from utility import make_uri
 from s3_service import S3Service, get_s3_service
-from database.models import MusiqlRepository
+from database.models import MusiqlRepository, UserLirbary, UserRequestFixes
 from database.db import get_session
 from authtoken_api import get_current_user
 
@@ -66,10 +66,24 @@ class DownloadedResourceContext:
     correction: str
     title: str
     url: str
+    job_id: Optional[str] = None
 
     @classmethod
     def create_from_context_dict(cls, context: Dict):
         return cls(**context)
+    
+    @classmethod
+    def create_from_user_request_fix(cls, request:UserRequestFixes):
+        return cls(
+            file_hash=request.file_hash.hex(),
+            obj_key=request.file_path,
+            uri=request.record_id,
+            uploader=request.artist,
+            correction=request.artist,
+            title=request.title,
+            url=request.url,
+            job_id=request.uri
+        )
 
 
 async def is_known_uploader(name: str, session_maker: sessionmaker) -> bool:
@@ -139,6 +153,21 @@ async def download_resource(
         outtmpl = os.path.join(outdir, uri)
 
         ydl_opts["outtmpl"] = outtmpl
+        
+        title = info.get("title")
+        uploader = info.get("uploader")
+
+        stmt = select(MusiqlRepository).where(
+            MusiqlRepository.title.ilike(f"%{title}%"),
+            MusiqlRepository.artists.ilike(f"%{uploader}%")
+        )
+
+        async with session_maker() as session:
+            result = await session.execute(stmt)
+            record = result.scalars().first()
+            if record is not None:
+                print(f"duplicate record ignored {uploader} - {title}")
+                continue
 
         with YoutubeDL(ydl_opts) as ydl:
             try:
@@ -151,7 +180,6 @@ async def download_resource(
                     obj_path, obj_key, session_maker
                 )
 
-                uploader = info.get("uploader")
 
                 context = DownloadedResourceContext(
                     file_hash=file_hash.hex(),
@@ -159,7 +187,7 @@ async def download_resource(
                     uri=uri,
                     uploader=uploader,
                     correction=uploader,
-                    title=info.get("title"),
+                    title=title,
                     url=str(url),
                 )
 
@@ -193,6 +221,10 @@ async def receive_music(
     result = await download_resource(payload.url, session_maker, s3_service)
     known_uploader_context: List[DownloadedResourceContext] = result[0]
     unknown_uploader_context: List[DownloadedResourceContext] = result[1]
+    uploader_display_name = user_id.split("-")[0]
+
+    resources = []
+    library_records = []
 
     for context in known_uploader_context:
         file_hash = bytes.fromhex(context.file_hash)
@@ -206,28 +238,84 @@ async def receive_music(
             mime="audio/mpeg",
             metadata_json={},
             url=str(payload.url),
+            added_by=uploader_display_name
         )
-        async with session_maker() as session, session.begin():
-            session.add(new_resource)
+
+        resources.append(new_resource)
+
+        new_library_record = UserLirbary(
+            user_id=user_id,
+            record_id=context.uri
+        )
+
+        library_records.append(new_library_record)
+
+    async with session_maker() as session, session.begin():
+        session.add_all(resources)
+        session.add_all(library_records)
 
     headers = {"Content-Type": "application/json"}
 
     if unknown_uploader_context:
-        print(unknown_uploader_context)
 
-        serialized_unknown_uploader_context = json.loads(
-            json.dumps([asdict(ctx) for ctx in unknown_uploader_context])
+        requests = []
+
+        for context in unknown_uploader_context:
+            file_hash = bytes.fromhex(context.file_hash)
+            job_id = f"job-{make_uri()}"
+            new_request_fix = UserRequestFixes(
+                user_id=user_id,
+                title=context.title,
+                artist=context.uploader,
+                record_id=context.uri,
+                file_hash=file_hash,
+                url=context.url,
+                file_path=context.obj_key,
+                uri=job_id
+            )
+
+            requests.append(new_request_fix)
+
+        async with session_maker() as session, session.begin():
+            session.add_all(requests)
+
+        return JSONResponse(content={"needs_fix": True}, headers=headers)
+    else:
+        return JSONResponse(content={"needs_fix": False}, headers=headers)
+
+
+@router.get("/media_ingestion/get_fixes")
+async def get_request_fixes(
+    session_maker:sessionmaker = Depends(get_session),
+    user_id: str = Depends(get_current_user)
+):
+    stmt = select(UserRequestFixes).where(UserRequestFixes.user_id == user_id)
+
+    async with session_maker() as session:
+        result = await session.execute(stmt)
+        requests:List[UserRequestFixes] = result.scalars().all()
+        headers = {"Content-Type": "application/json"}
+
+        if not requests:
+            return JSONResponse(
+                content=[],
+                headers=headers
+            )
+
+        fixes_context = [
+            DownloadedResourceContext.create_from_user_request_fix(request)
+            for request
+            in requests
+        ]
+
+        serialized_requests = json.loads(
+            json.dumps([asdict(ctx) for ctx in fixes_context])
         )
 
         return JSONResponse(
-            content={
-                "needs_fix": True,
-                "unknown_uploaders": serialized_unknown_uploader_context,
-            },
-            headers=headers,
+            content=serialized_requests,
+            headers=headers
         )
-    else:
-        return JSONResponse(content={"needs_fix": False}, headers=headers)
 
 
 @router.post("/media_ingestion/fix_uploader", response_model=None)
@@ -239,8 +327,8 @@ async def fix_uploader(
 ):
 
     file_hash = bytes.fromhex(payload.context.get("file_hash"))
-
     context = DownloadedResourceContext.create_from_context_dict(payload.context)
+    uploader_display_name = user_id.split("-")[0]
 
     new_resource = MusiqlRepository(
         uri=context.uri,
@@ -251,9 +339,21 @@ async def fix_uploader(
         mime="audio/mpeg",
         metadata_json={},
         url=context.url,
+        added_by=uploader_display_name
     )
+
+    new_library_record = UserLirbary(
+        user_id=user_id,
+        record_id=context.uri
+    )
+
+    stmt = delete(UserRequestFixes).where(UserRequestFixes.uri == context.job_id)
+
+
     async with session_maker() as session, session.begin():
         session.add(new_resource)
+        session.add(new_library_record)
+        await session.execute(stmt)
 
     unknown_uploader_corrections = get_unknown_uploader_corrections(s3_service)
 

@@ -11,8 +11,9 @@ class MusiqlRepository(Base):
     __tablename__ = "music_repository"
 
     uri: Mapped[str] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(nullable=False)
+    title: Mapped[str] = mapped_column(nullable=False, index=True)
     artists: Mapped[str] = mapped_column(nullable=False, index=True)
+    added_by: Mapped[str] = mapped_column(nullable=False, index=True)
     filepath: Mapped[str] = mapped_column(nullable=False)
     hash: Mapped[bytes] = mapped_column(nullable=False)
     mime: Mapped[str] = mapped_column(nullable=False)
@@ -52,7 +53,8 @@ class Users(Base):
 class UserLirbary(Base):
     __tablename__ = "libraries"
     user_id: Mapped[str] = mapped_column(primary_key=True)
-    record_id: Mapped[str] = mapped_column(primary_key=True)
+    record_id: Mapped[str] = mapped_column(
+        ForeignKey("music_repository.uri", ondelete="CASCADE"), primary_key=True)
 
 
 class Models(Base):
@@ -69,3 +71,16 @@ class ModelUpdates(Base):
     dttm: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class UserRequestFixes(Base):
+    __tablename__ = "user_request_fixes"
+    uri: Mapped[str] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(nullable=False)
+    title: Mapped[str] = mapped_column(nullable=False)
+    artist: Mapped[str] = mapped_column(nullable=False)
+    record_id: Mapped[str] = mapped_column(
+        ForeignKey("music_repository.uri", ondelete="CASCADE"), nullable=False)
+    file_hash: Mapped[bytes] = mapped_column(nullable=False)
+    url: Mapped[str] = mapped_column(nullable=True)
+    file_path: Mapped[str] = mapped_column(nullable=False)
