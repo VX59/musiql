@@ -79,8 +79,7 @@ class UserRequestFixes(Base):
     user_id: Mapped[str] = mapped_column(nullable=False)
     title: Mapped[str] = mapped_column(nullable=False)
     artist: Mapped[str] = mapped_column(nullable=False)
-    record_id: Mapped[str] = mapped_column(
-        ForeignKey("music_repository.uri", ondelete="CASCADE"), nullable=False)
+    record_id: Mapped[str] = mapped_column(nullable=False)
     file_hash: Mapped[bytes] = mapped_column(nullable=False)
     url: Mapped[str] = mapped_column(nullable=True)
     file_path: Mapped[str] = mapped_column(nullable=False)
