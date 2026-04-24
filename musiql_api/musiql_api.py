@@ -2,9 +2,9 @@ from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, status, Depends
 from settings import Settings, get_settings
 from database.db import get_session
-from s3_service import S3Service, get_s3_service
+from s3_service import S3, get_S3
 from fastapi.responses import HTMLResponse, JSONResponse
-from database.models import MusiqlRepository, MusiqlHistory, Users, UserLirbary
+from database.models import MusiqlRepository, MusiqlHistory, Users, UserLirbary, Models
 from sqlalchemy import update, or_, Select, delete
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
@@ -44,7 +44,7 @@ async def track_history(uri: str, user_id: str, session):
 async def serve_record(
     uri: str,
     session_maker: sessionmaker = Depends(get_session),
-    s3_service: S3Service = Depends(get_s3_service),
+    s3_service: S3 = Depends(get_S3),
     user_id:str = Depends(get_current_user)
 ):
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == uri)
@@ -260,9 +260,26 @@ async def remove_from_library(
 async def sample_song(
     uri: str,
     session_maker: sessionmaker = Depends(get_session),
-    recommendation_api: GraphAMP = Depends(get_recommendation_api),
     user_id: str = Depends(get_current_user)
 ):
+    async with session_maker() as session:
+        stmt = (
+            select(Models.uri)
+            .select_from(Users)
+            .where(Users.uri == user_id)
+            .join(Models, Users.uri == Models.user_id)
+        )
+
+        result = await session.execute(stmt)
+        model_uri = result.scalar_one_or_none()
+        if model_uri is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"model not found {model_uri}"
+            )
+
+    recommendation_api: GraphAMP = get_recommendation_api(model_uri)
+
     states: List[str] = recommendation_api.preempt(uri)
     if not states:
         return []

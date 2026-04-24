@@ -27,7 +27,7 @@ async def resource_exists(hash: bytes, session_maker: sessionmaker) -> bool:
     return False
 
 
-class S3Service:
+class S3:
     def __init__(self):
         self.settings = get_settings()
         self.bucket = self.settings.s3_bucket
@@ -136,5 +136,5 @@ class S3Service:
 
 
 @lru_cache
-def get_s3_service() -> S3Service:
-    return S3Service()
+def get_S3() -> S3:
+    return S3()

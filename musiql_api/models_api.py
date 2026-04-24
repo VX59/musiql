@@ -3,13 +3,12 @@ import networkx as nx
 import pickle
 from typing import Optional, List
 from functools import lru_cache
-
-from s3_service import S3Service, get_s3_service
+from s3_service import S3, get_S3
 
 
 class GraphAMP:
-    def __init__(self):
-        self.model: nx.DiGraph = get_model()
+    def __init__(self, model_uri):
+        self.model: nx.DiGraph = get_model(model_uri)
 
     def sample(self, uri: Optional[str]):
         if uri is None:
@@ -34,9 +33,9 @@ class GraphAMP:
 
 
 @lru_cache
-def get_model():
-    s3_service: S3Service = get_s3_service()
-    obj_key = "recommendation_models/GraphAMP.model"
+def get_model(model_uri):
+    s3_service: S3 = get_S3()
+    obj_key = f"recommendation_models/GAMP/{model_uri}.gamp"
     file_stream = s3_service.pull_obj_stream(obj_key)
     graph_data = file_stream.read()
 
@@ -44,5 +43,5 @@ def get_model():
 
 
 @lru_cache
-def get_recommendation_api() -> GraphAMP:
-    return GraphAMP()
+def get_recommendation_api(model_uri) -> GraphAMP:
+    return GraphAMP(model_uri)

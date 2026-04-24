@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import exists, delete
 from sqlalchemy.future import select
@@ -15,7 +16,7 @@ from collections import defaultdict
 import hashlib
 
 from utility import make_uri
-from s3_service import S3Service, get_s3_service
+from s3_service import S3, get_S3
 from database.models import MusiqlRepository, UserLirbary, UserRequestFixes
 from database.db import get_session
 from authtoken_api import get_current_user
@@ -37,7 +38,7 @@ unknown_uploader_corrections_key = "unknown_uploader_corrections.json"
 unknown_uploads_to_correct = []
 
 
-def get_unknown_uploader_corrections(s3_service: S3Service) -> Dict:
+def get_unknown_uploader_corrections(s3_service: S3) -> Dict:
     global unknown_uploader_corrections
     if unknown_uploader_corrections is None:
         try:
@@ -50,7 +51,7 @@ def get_unknown_uploader_corrections(s3_service: S3Service) -> Dict:
 
 
 def commit_unknown_uploader_corrections(
-    s3_service: S3Service,
+    s3_service: S3,
 ):
     global unknown_uploader_corrections
     data_bytes = json.dumps(unknown_uploader_corrections).encode("utf-8")
@@ -95,7 +96,7 @@ async def is_known_uploader(name: str, session_maker: sessionmaker) -> bool:
 
 
 async def download_resource(
-    url: HttpUrl, session_maker: sessionmaker, s3_service: S3Service
+    url: HttpUrl, session_maker: sessionmaker, s3_service: S3
 ) -> Optional[Tuple[List[DownloadedResourceContext], List[DownloadedResourceContext]]]:
     ext = "mp3"
     outdir = "music_dump"
@@ -215,10 +216,16 @@ async def download_resource(
 async def receive_music(
     payload: MusiqlPayload,
     session_maker: sessionmaker = Depends(get_session),
-    s3_service: S3Service = Depends(get_s3_service),
+    s3_service: S3 = Depends(get_S3),
     user_id: str = Depends(get_current_user)
 ):
     result = await download_resource(payload.url, session_maker, s3_service)
+    if (result := await download_resource(payload.url, session_maker, s3_service)) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"failed to fetch media @ {payload.url}"
+        )
+
     known_uploader_context: List[DownloadedResourceContext] = result[0]
     unknown_uploader_context: List[DownloadedResourceContext] = result[1]
     uploader_display_name = user_id.split("-")[0]
@@ -322,7 +329,7 @@ async def get_request_fixes(
 async def fix_uploader(
     payload: FixUploaderPayload,
     session_maker: sessionmaker = Depends(get_session),
-    s3_service: S3Service = Depends(get_s3_service),
+    s3_service: S3 = Depends(get_S3),
     user_id: str = Depends(get_current_user)
 ):
 

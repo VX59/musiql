@@ -61,7 +61,7 @@ class Models(Base):
     __tablename__ = "models"
     uri: Mapped[str] = mapped_column(nullable=False, primary_key=True)
     user_id: Mapped[str] = mapped_column(nullable=False)
-    model_name: Mapped[str] = mapped_column(nullable=False)
+    model_name: Mapped[str] = mapped_column(nullable=True)
     algorithm: Mapped[str] = mapped_column(nullable=True)
 
 
