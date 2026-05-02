@@ -3,7 +3,7 @@ import networkx as nx
 import pickle
 from typing import Optional, List
 from functools import lru_cache
-from s3_service import S3, get_S3
+from boto3_tools import S3, get_S3
 
 
 class GraphAMP:

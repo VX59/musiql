@@ -3,6 +3,7 @@ __pycache__
 music_dump
 musiql-desktop/node_modules
 migrations/versions
+internal_tools
 *.png
 *.pyc
 .venv
@@ -10,4 +11,4 @@ alembic.ini
 updates.log
 musiql.egg-info
 .env
-cookies.txt
+CLAUDE.md
