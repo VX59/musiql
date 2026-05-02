@@ -123,7 +123,7 @@ def open_redirect(code_holder):
     while code_holder.get("access_token") is None:
         time.sleep(0.2)
     
-    with open("scrape/codes.json", "w") as writer:
+    with open("internal_tools/codes.json", "w") as writer:
         json.dump(code_holder, writer)
 
 #open_redirect()
@@ -141,7 +141,7 @@ def refresh_access_token(code_holder, client_id, client_secret):
 
     code_holder["access_token"] = response.json()["access_token"]
 
-    with open("scrape/codes.json", "w") as writer:
+    with open("internal_tools/codes.json", "w") as writer:
         json.dump(code_holder, writer)
 
 def save_track(code_holder, record_id, job_uri, retries=0):
@@ -345,7 +345,7 @@ async def external_search(
     user_id=Depends(get_current_user),
 ):
     
-    with open("scrape/codes.json", "r") as reader:
+    with open("internal_tools/codes.json", "r") as reader:
         code_holder = json.load(reader)
 
     search_result:dict = do_external_search(
@@ -365,7 +365,7 @@ async def add_music(
     sqs_api:SQS = Depends(get_SQS)
 ):
 
-    with open("scrape/codes.json", "r") as reader:
+    with open("internal_tools/codes.json", "r") as reader:
         code_holder = json.load(reader)
 
     async with session_maker() as session:
