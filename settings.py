@@ -5,7 +5,6 @@ import os
 import boto3
 from botocore.config import Config
 
-
 class Settings(BaseSettings):
     db_user: str
     db_name: str
@@ -14,9 +13,14 @@ class Settings(BaseSettings):
     db_domain: str
     musiql_api_url: str
     media_ingestion_api_url: str
+    jwt_secret_key: str
 
     aws_region: str = "us-east-2"
     s3_bucket: str = "musiql-s3-bucket"
+
+    spotify_client_id: str
+    spotify_client_secret: str
+
     env: str
 
     class Config:
