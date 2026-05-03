@@ -9,7 +9,7 @@ from database.models import MusiqlRepository
 from sqlalchemy.orm import sessionmaker
 from functools import lru_cache
 from utility import logger
-from botocore.exceptions import ClientError, EndpointResolutionError
+from botocore.exceptions import EndpointResolutionError
 
 
 class DuplicateResource(Exception):
@@ -39,47 +39,49 @@ class SQS:
     def send_message(self, body, attributes=None):
         try:
             params = {
-                'QueueUrl': self.queue_url,
-                'MessageBody': body,
+                "QueueUrl": self.queue_url,
+                "MessageBody": body,
             }
             if attributes:
-                params['MessageAttributes'] = attributes
+                params["MessageAttributes"] = attributes
 
             response = self.sqs_client.send_message(**params)
-            message_id = response['MessageId']
-            logger.info('Message sent successfully. MessageId: %s', message_id)
+            message_id = response["MessageId"]
+            logger.info("Message sent successfully. MessageId: %s", message_id)
             return message_id
 
         except ClientError as e:
-            error_code = e.response['Error']['Code']
-            error_msg = e.response['Error']['Message']
+            error_code = e.response["Error"]["Code"]
+            error_msg = e.response["Error"]["Message"]
 
-            if error_code == 'InvalidMessageContents':
-                logger.error('Message body contains invalid characters: %s', error_msg)
-            elif error_code == 'UnsupportedOperation':
-                logger.error('Operation not supported on this queue: %s', error_msg)
-            elif error_code == 'AccessDenied':
-                logger.error('IAM permissions error — check your SQS policy: %s', error_msg)
+            if error_code == "InvalidMessageContents":
+                logger.error("Message body contains invalid characters: %s", error_msg)
+            elif error_code == "UnsupportedOperation":
+                logger.error("Operation not supported on this queue: %s", error_msg)
+            elif error_code == "AccessDenied":
+                logger.error(
+                    "IAM permissions error — check your SQS policy: %s", error_msg
+                )
             else:
-                logger.error('Unexpected SQS error [%s]: %s', error_code, error_msg)
+                logger.error("Unexpected SQS error [%s]: %s", error_code, error_msg)
 
             raise  # re-raise so the caller knows it failed
 
         except EndpointResolutionError:
-            logger.error('Could not resolve SQS endpoint — check your region config')
+            logger.error("Could not resolve SQS endpoint — check your region config")
             raise
 
-        except Exception as e:
-            logger.exception('Unexpected error sending message')
+        except Exception:
+            logger.exception("Unexpected error sending message")
             raise
-    
+
     def receive_message(self):
         try:
             response = self.sqs_client.receive_message(
                 QueueUrl=self.queue_url,
                 MaxNumberOfMessages=10,
                 WaitTimeSeconds=20,
-                MessageAttributeNames=["All"]
+                MessageAttributeNames=["All"],
             )
 
             messages = response.get("Messages", [])
@@ -93,7 +95,9 @@ class SQS:
             elif error_code == "OverLimit":
                 logger.error("SQS receive limit exceeded: %s", error_msg)
             elif error_code == "AccessDenied":
-                logger.error("IAM permissions error — check your SQS policy: %s", error_msg)
+                logger.error(
+                    "IAM permissions error — check your SQS policy: %s", error_msg
+                )
             else:
                 logger.error("Unexpected SQS error [%s]: %s", error_code, error_msg)
 
@@ -106,14 +110,15 @@ class SQS:
         except Exception:
             logger.exception("Unexpected error receiving messages")
             raise
-    
+
     def delete_message(self, receipt_handle):
         try:
             self.sqs_client.delete_message(
-                QueueUrl=self.queue_url,
-                ReceiptHandle=receipt_handle
+                QueueUrl=self.queue_url, ReceiptHandle=receipt_handle
             )
-            logger.info("Message deleted successfully. ReceiptHandle: %s", receipt_handle)
+            logger.info(
+                "Message deleted successfully. ReceiptHandle: %s", receipt_handle
+            )
 
         except ClientError as e:
             error_code = e.response["Error"]["Code"]
@@ -122,9 +127,14 @@ class SQS:
             if error_code == "AWS.SimpleQueueService.NonExistentQueue":
                 logger.error("SQS queue does not exist: %s", error_msg)
             elif error_code == "ReceiptHandleIsInvalid":
-                logger.error("Invalid receipt handle — message may have already been deleted or expired: %s", error_msg)
+                logger.error(
+                    "Invalid receipt handle — message may have already been deleted or expired: %s",
+                    error_msg,
+                )
             elif error_code == "AccessDenied":
-                logger.error("IAM permissions error — check your SQS policy: %s", error_msg)
+                logger.error(
+                    "IAM permissions error — check your SQS policy: %s", error_msg
+                )
             else:
                 logger.error("Unexpected SQS error [%s]: %s", error_code, error_msg)
 
@@ -137,7 +147,7 @@ class SQS:
         except Exception:
             logger.exception("Unexpected error deleting message")
             raise
-        
+
 
 @lru_cache
 def get_SQS() -> SQS:
@@ -202,7 +212,6 @@ class S3:
     def delete_object(self, key):
         self.s3_client.delete_object(Bucket=self.bucket, Key=key)
 
-
     def commit_multipart_upload(self, key, upload_id, parts, obj_path):
         self.s3_client.complete_multipart_upload(
             Bucket=self.bucket,
@@ -211,7 +220,6 @@ class S3:
             MultipartUpload={"Parts": parts},
         )
         os.remove(obj_path)
-
 
     def upload_object_from_path(self, obj_path, key):
         mpu = self.s3_client.create_multipart_upload(Bucket=self.bucket, Key=key)

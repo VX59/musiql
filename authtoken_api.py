@@ -17,7 +17,6 @@ def create_token(user_id: str):
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=ALGORITHM)
 
 
-
 def decode_token(token: str):
     try:
         settings = get_settings()

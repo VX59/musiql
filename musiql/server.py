@@ -17,6 +17,7 @@ app.include_router(musiql_api_router)
 app.include_router(user_management_router)
 app.include_router(upload_job_router)
 
+
 def main():
     uvicorn.run(
         "musiql.server:app",

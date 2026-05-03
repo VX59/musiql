@@ -20,8 +20,8 @@ class CreateUserPayload(BaseModel):
 
 
 class LoginUserPayload(BaseModel):
-    username:str
-    password:str
+    username: str
+    password: str
 
 
 class ModelTypes(str, Enum):
@@ -34,15 +34,14 @@ class CreateModelPayload(BaseModel):
 
 @user_management_router.post("/musiql/login/user", response_model=None)
 async def user_login(
-    payload:LoginUserPayload,
+    payload: LoginUserPayload,
     session_maker: sessionmaker = Depends(get_session),
 ):
-    
+
     pword_hash = hashlib.sha256(payload.password.encode("utf-8")).digest()
 
     stmt = select(Users.uri).where(
-        Users.username == payload.username,
-        Users.password == pword_hash
+        Users.username == payload.username, Users.password == pword_hash
     )
 
     async with session_maker() as session:
@@ -50,9 +49,7 @@ async def user_login(
         user = result.scalar_one_or_none()
 
         if not user:
-            raise HTTPException(
-                status_code=401, detail="Invalid credentials"
-            )
+            raise HTTPException(status_code=401, detail="Invalid credentials")
         token = create_token(user)
         return {"token": token}
 
@@ -61,8 +58,7 @@ async def user_login(
 async def create_user(
     payload: CreateUserPayload,
     session_maker: sessionmaker = Depends(get_session),
-    user_id = Depends(get_current_user)
-    
+    user_id=Depends(get_current_user),
 ):
     uri = f"{payload.username}-{make_uri()}"
 
@@ -71,7 +67,7 @@ async def create_user(
             uri=uri,
             username=payload.username,
             password=hashlib.sha256(payload.password.encode("utf-8")).digest(),
-            access_level = payload.access_level
+            access_level=payload.access_level,
         )
 
         async with session_maker() as session, session.begin():
@@ -83,21 +79,20 @@ async def create_user(
 
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
-    
+
+
 @user_management_router.post("/musiql/create/model", response_model=None)
 async def create_model(
     payload: CreateModelPayload,
     session_maker: sessionmaker = Depends(get_session),
-    user_id = Depends(get_current_user)
+    user_id=Depends(get_current_user),
 ):
 
     async with session_maker() as session:
         stmt = select(Models).where(
-            Models.user_id == user_id,
-            Models.algorithm == payload.model_type
+            Models.user_id == user_id, Models.algorithm == payload.model_type
         )
 
         result = await session.execute(stmt)
@@ -105,7 +100,7 @@ async def create_model(
         if (_ := result.scalar_one_or_none()) is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"{payload.model_type} model already exists for {user_id}"
+                detail=f"{payload.model_type} model already exists for {user_id}",
             )
 
     model_uri = f"{user_id}:{payload.model_type}:{make_uri()}"
@@ -115,7 +110,7 @@ async def create_model(
             uri=model_uri,
             user_id=user_id,
             model_name=None,
-            algorithm=payload.model_type
+            algorithm=payload.model_type,
         )
 
         async with session_maker() as session, session.begin():
@@ -126,6 +121,5 @@ async def create_model(
         )
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )

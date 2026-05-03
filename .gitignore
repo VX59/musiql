@@ -1,9 +1,9 @@
 __pycache__
 .vscode
-music_dump
-musiql-desktop/node_modules
-migrations/versions
-internal_tools
+music_dump/
+musiql-desktop/node_modules/
+migrations/versions/
+internal_tools/
 *.png
 *.pyc
 .venv

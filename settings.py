@@ -5,6 +5,7 @@ import os
 import boto3
 from botocore.config import Config
 
+
 class Settings(BaseSettings):
     db_user: str
     db_name: str

@@ -1,5 +1,6 @@
 import dataclasses
 
+
 @dataclasses.dataclass
 class spotify_artist:
     external_urls: dict
@@ -10,7 +11,7 @@ class spotify_artist:
     uri: str
 
     @classmethod
-    def create_from_dict(cls, artist:dict):
+    def create_from_dict(cls, artist: dict):
         return cls(**artist)
 
 
@@ -31,7 +32,7 @@ class spotify_album:
     total_tracks: int
 
     @classmethod
-    def create_from_dict(cls, album:dict):
+    def create_from_dict(cls, album: dict):
         return cls(**album)
 
 
@@ -59,10 +60,7 @@ class spotify_item:
     def create_from_dict(cls, item: dict):
         album = spotify_album.create_from_dict(item["album"])
 
-        artists = [
-            spotify_artist.create_from_dict(a)
-            for a in item.get("artists", [])
-        ]
+        artists = [spotify_artist.create_from_dict(a) for a in item.get("artists", [])]
 
         return cls(
             is_playable=item.get("is_playable"),
@@ -82,4 +80,4 @@ class spotify_item:
             name=item.get("name"),
             uri=item.get("uri"),
             is_local=item.get("is_local"),
-        )  
+        )

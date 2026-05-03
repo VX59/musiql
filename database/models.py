@@ -1,5 +1,3 @@
-from sqlalchemy.dialects import postgresql
-import sqlalchemy as sa
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column
 from sqlalchemy import DateTime, func, ForeignKey
 from datetime import datetime, timezone
@@ -31,8 +29,7 @@ class MusiqlRepository(Base):
     uri: Mapped[str] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(nullable=False, index=True)
     album_uri: Mapped[str] = mapped_column(
-        ForeignKey("albums.uri", ondelete="CASCADE"),
-        nullable=False
+        ForeignKey("albums.uri", ondelete="CASCADE"), nullable=False
     )
     duration_ms: Mapped[int] = mapped_column(nullable=True)
     added_by: Mapped[str] = mapped_column(nullable=False)
@@ -50,12 +47,10 @@ class RecordArtistAssociation(Base):
     __tablename__ = "record_artist_association"
 
     record_uri: Mapped[str] = mapped_column(
-        ForeignKey("music_repository.uri", ondelete="CASCADE"),
-        primary_key=True
+        ForeignKey("music_repository.uri", ondelete="CASCADE"), primary_key=True
     )
     artist_uri: Mapped[str] = mapped_column(
-        ForeignKey("artists.uri", ondelete="CASCADE"),
-        primary_key=True
+        ForeignKey("artists.uri", ondelete="CASCADE"), primary_key=True
     )
 
 
@@ -63,12 +58,10 @@ class AlbumArtistAssociation(Base):
     __tablename__ = "artist_album_association"
 
     album_uri: Mapped[str] = mapped_column(
-        ForeignKey("albums.uri", ondelete="CASCADE"),
-        primary_key=True
+        ForeignKey("albums.uri", ondelete="CASCADE"), primary_key=True
     )
     artist_uri: Mapped[str] = mapped_column(
-        ForeignKey("artists.uri", ondelete="CASCADE"),
-        primary_key=True
+        ForeignKey("artists.uri", ondelete="CASCADE"), primary_key=True
     )
 
 
@@ -84,12 +77,10 @@ class MusiqlHistory(Base):
     __tablename__ = "music_history"
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     uri: Mapped[str] = mapped_column(
-        ForeignKey("music_repository.uri", ondelete="CASCADE"),
-        nullable=False
+        ForeignKey("music_repository.uri", ondelete="CASCADE"), nullable=False
     )
     user_id: Mapped[str] = mapped_column(
-        ForeignKey("users.uri", ondelete="CASCADE"),
-        nullable=True
+        ForeignKey("users.uri", ondelete="CASCADE"), nullable=True
     )
     duration_played: Mapped[float] = mapped_column(nullable=False)
     listened_at: Mapped[datetime] = mapped_column(
@@ -100,12 +91,10 @@ class MusiqlHistory(Base):
 class UserLirbary(Base):
     __tablename__ = "libraries"
     user_id: Mapped[str] = mapped_column(
-        ForeignKey("users.uri", ondelete="CASCADE"),
-        primary_key=True
+        ForeignKey("users.uri", ondelete="CASCADE"), primary_key=True
     )
     record_id: Mapped[str] = mapped_column(
-        ForeignKey("music_repository.uri", ondelete="CASCADE"),
-        primary_key=True
+        ForeignKey("music_repository.uri", ondelete="CASCADE"), primary_key=True
     )
 
 
@@ -113,8 +102,7 @@ class Models(Base):
     __tablename__ = "models"
     uri: Mapped[str] = mapped_column(nullable=False, primary_key=True)
     user_id: Mapped[str] = mapped_column(
-        ForeignKey("users.uri", ondelete="CASCADE"),
-        nullable=False
+        ForeignKey("users.uri", ondelete="CASCADE"), nullable=False
     )
     model_name: Mapped[str] = mapped_column(nullable=True)
     algorithm: Mapped[str] = mapped_column(nullable=True)
@@ -126,6 +114,7 @@ class ModelUpdates(Base):
     dttm: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
 
 class UploadJobs(Base):
     __tablename__ = "upload_jobs"
