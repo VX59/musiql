@@ -217,6 +217,8 @@ async def advanced_search_songs(
                 ],
                 "added_by": rec.added_by,
                 "in_library": in_identity,
+                "preview_url": alb.cover_preview_url,
+                "thumbnail_url": alb.cover_thumbnail_url,
             }
             for i, ((rec, _, alb), in_identity) in enumerate(search_context)
             if rec.uri not in record_uris[:i]
@@ -245,7 +247,6 @@ async def serve_player(
     env_script = (
         "<script>window.__ENV__ = {"
         f'"MUSIQL_API_URL": "{settings.musiql_api_url}", '
-        f'"MEDIA_INGESTION_API_URL": "{settings.media_ingestion_api_url}"'
         "};</script>"
     )
     html_content = html_content.replace("<!-- __ENV__ -->", env_script)
@@ -360,6 +361,7 @@ async def sample_song(
         by_uri = {rec.uri: (rec, art, alb) for rec, art, alb in sample_records}
         ordered_records = [by_uri[u] for u in states if u in by_uri]
 
+        # goes into the queue
         content = [
             {
                 "uri": rec.uri,
@@ -371,6 +373,8 @@ async def sample_song(
                     for record, artist, _ in sample_records
                     if record.uri == rec.uri
                 ],
+                "preview_url": alb.cover_preview_url,
+                "thumbnail_url": alb.cover_thumbnail_url,
             }
             for i, (rec, _, alb) in enumerate(ordered_records)
             if rec.uri not in list(by_uri.values())[:i]

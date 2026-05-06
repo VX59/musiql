@@ -1,4 +1,59 @@
 import dataclasses
+from typing import Any, Optional
+
+
+@dataclasses.dataclass
+class spotify_user:
+    external_urls: dict
+    href: str
+    id: str
+    type: str
+    uri: str
+    display_name: str
+
+    @classmethod
+    def create_from_dict(cls, user):
+        return cls(**user)
+
+
+@dataclasses.dataclass
+class spotify_playlist:
+    collaborative: bool
+    description: str
+    external_urls: dict
+    href: str
+    id: str
+    images: list
+    name: str
+    owner: spotify_user
+    public: bool
+    snapshot_id: str
+    items: dict
+    tracks: dict
+    type: str
+    uri: str
+    primary_color: Any
+
+    @classmethod
+    def create_from_dict(cls, playlist: dict):
+        owner: spotify_user = spotify_user.create_from_dict(playlist.get("owner", {}))
+        return cls(
+            collaborative=playlist.get("collaborative"),
+            description=playlist.get("description"),
+            external_urls=playlist.get("external_urls"),
+            href=playlist.get("href"),
+            id=playlist.get("id"),
+            images=playlist.get("images"),
+            name=playlist.get("name"),
+            owner=owner,
+            public=playlist.get("public"),
+            snapshot_id=playlist.get("snapshot_id"),
+            items=playlist.get("items"),
+            tracks=playlist.get("tracks"),
+            type=playlist.get("type"),
+            uri=playlist.get("uri"),
+            primary_color=playlist.get("primary_color"),
+        )
 
 
 @dataclasses.dataclass
@@ -17,7 +72,6 @@ class spotify_artist:
 
 @dataclasses.dataclass
 class spotify_album:
-    is_playable: bool
     type: str
     album_type: str
     href: str
@@ -30,7 +84,13 @@ class spotify_album:
     artists: list[spotify_artist]
     external_urls: dict
     total_tracks: int
-
+    ...
+    is_playable: bool = True
+    tracks: Optional[dict] = None
+    copyrights: Optional[list] = None
+    external_ids: Optional[dict] = None
+    genres: Optional[list] = None
+    
     @classmethod
     def create_from_dict(cls, album: dict):
         return cls(**album)

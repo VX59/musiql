@@ -2,6 +2,7 @@ __pycache__
 .vscode
 music_dump/
 musiql-desktop/node_modules/
+add_music_jobs/
 migrations/versions/
 internal_tools/
 *.png

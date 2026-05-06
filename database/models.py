@@ -12,7 +12,9 @@ class Albums(Base):
     release_date: Mapped[datetime] = mapped_column(nullable=False)
     release_date_precision: Mapped[str] = mapped_column(nullable=True)
     total_tracks: Mapped[int] = mapped_column(nullable=False)
-    cover_art_uri: Mapped[str] = mapped_column(nullable=True)
+    cover_preview_url: Mapped[str] = mapped_column(nullable=True)
+    cover_thumbnail_url: Mapped[str] = mapped_column(nullable=True)
+    cover_full_size_url: Mapped[str] = mapped_column(nullable=True)
     external_uri: Mapped[str] = mapped_column(nullable=True)
 
 
