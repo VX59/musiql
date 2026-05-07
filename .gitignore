@@ -12,4 +12,6 @@ alembic.ini
 updates.log
 musiql.egg-info
 .env
+.terraform
+
 CLAUDE.md
