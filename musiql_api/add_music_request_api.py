@@ -362,7 +362,8 @@ async def add_music(
 
     async with session_maker() as session:
         check_finished = select(UploadJobs).where(
-            UploadJobs.source_id == payload.source_uri, UploadJobs.status == JobStatus.finished
+            UploadJobs.source_id == payload.source_uri,
+            UploadJobs.status == JobStatus.finished,
         )
 
         result = await session.execute(check_finished)

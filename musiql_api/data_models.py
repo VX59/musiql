@@ -90,7 +90,7 @@ class spotify_album:
     copyrights: Optional[list] = None
     external_ids: Optional[dict] = None
     genres: Optional[list] = None
-    
+
     @classmethod
     def create_from_dict(cls, album: dict):
         return cls(**album)

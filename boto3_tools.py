@@ -9,7 +9,6 @@ from database.models import MusiqlRepository
 from sqlalchemy.orm import sessionmaker
 from functools import lru_cache
 from utility import logger
-from botocore.exceptions import EndpointResolutionError
 
 
 class DuplicateResource(Exception):
