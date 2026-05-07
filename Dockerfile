@@ -5,9 +5,11 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 COPY boto3_tools.py ./boto3_tools.py
-COPY database ./database
 COPY utility.py ./utility.py
 COPY settings.py ./settings.py
+COPY authtoken_api.py ./authtoken_api.py
+
+COPY database ./database
 COPY musiql ./musiql
 COPY musiql_api ./musiql_api
 CMD ["musiql.handler.handler"]
