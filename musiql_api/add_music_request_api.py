@@ -16,7 +16,7 @@ from authtoken_api import get_current_user
 
 from utility import make_uri, SourceTypes, JobTypes, JobStatus
 from database.db import get_session
-from boto3_tools import S3, get_S3, SQS, get_SQS
+from boto3_tools import S3, get_S3
 from settings import Settings, get_settings
 from .data_models import spotify_item, spotify_playlist
 
@@ -265,7 +265,6 @@ async def report_recording(
     payload: ReportRecordingPayload,
     session_maker: sessionmaker = Depends(get_session),
     s3_api: S3 = Depends(get_S3),
-    sqs_api: SQS = Depends(get_SQS),
     user_id=Depends(get_current_user),
 ):
     with open("internal_tools/codes.json", "r") as reader:
@@ -345,8 +344,6 @@ async def report_recording(
         obj_path=out_path, key=out_path, upload_id=upload_id, parts=parts
     )
 
-    sqs_api.send_message(body=job_uri)
-
     return {
         f"successfully queue new {SourceTypes.track} {JobTypes.correction} job for uri {payload.uri}"
     }
@@ -358,7 +355,6 @@ async def add_music(
     session_maker: sessionmaker = Depends(get_session),
     user_id=Depends(get_current_user),
     s3_api: S3 = Depends(get_S3),
-    sqs_api: SQS = Depends(get_SQS),
 ):
 
     with open("internal_tools/codes.json", "r") as reader:
@@ -428,8 +424,6 @@ async def add_music(
     s3_api.commit_multipart_upload(
         obj_path=out_path, key=out_path, upload_id=upload_id, parts=parts
     )
-
-    sqs_api.send_message(body=job_uri)
 
     return {
         f"successfully queued new {payload.source_type} {JobTypes.integration} job for external uri {payload.source_uri}"
