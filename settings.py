@@ -65,7 +65,10 @@ def get_settings() -> Settings:
                 "db_port": "5432",
                 "db_password": "dummy",
                 "db_domain": "dummy",
-                "api_url": "http://localhost:8000",
+                "musiql_api_url": "http://localhost:8000",
+                "jwt_secret_key": "dummy",
+                "spotify_client_id": "dummy",
+                "spotify_client_secret": "dummy",
                 "env": "production",
             }
 
