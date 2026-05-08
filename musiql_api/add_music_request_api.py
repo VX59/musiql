@@ -204,7 +204,9 @@ def do_external_search(code_holder, search: ExternalSearch, retries=0):
     data = response.json()
 
     if "error" in data:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=data["error"])
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=data["error"]
+        )
 
     search_result = {}
 

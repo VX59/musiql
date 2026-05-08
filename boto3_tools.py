@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from functools import lru_cache
 from loguru import logger
 
+
 class DuplicateResource(Exception):
     pass
 

@@ -1,8 +1,7 @@
 import secrets
 from enum import Enum
 import base64
-from dataclasses import dataclass
-from functools import lru_cache
+
 
 def make_uri():
     uri = base64.urlsafe_b64encode(secrets.token_bytes(16)).decode().rstrip("=")
