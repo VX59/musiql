@@ -1,16 +1,8 @@
 import secrets
 from enum import Enum
 import base64
-
-import logging
-
-# Basic config — call this once at the top of your script/module
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-
-logger = logging.getLogger(__name__)
-
+from dataclasses import dataclass
+from functools import lru_cache
 
 def make_uri():
     uri = base64.urlsafe_b64encode(secrets.token_bytes(16)).decode().rstrip("=")

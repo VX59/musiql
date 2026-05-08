@@ -8,8 +8,7 @@ from sqlalchemy.future import select
 from database.models import MusiqlRepository
 from sqlalchemy.orm import sessionmaker
 from functools import lru_cache
-from utility import logger
-
+from loguru import logger
 
 class DuplicateResource(Exception):
     pass

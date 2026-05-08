@@ -22,6 +22,7 @@ from .data_models import spotify_item, spotify_playlist
 
 
 MAX_RETRIES = 3
+CODES_S3_KEY = "spotify_utils/codes.json"
 
 
 class ExpiredAccessToken(Exception):
@@ -31,7 +32,19 @@ class ExpiredAccessToken(Exception):
 settings: Settings = get_settings()
 
 
-def refresh_access_token(code_holder, client_id, client_secret):
+_codes_cache: dict | None = None
+
+
+def load_codes(s3_api: S3) -> dict:
+    global _codes_cache
+    if _codes_cache is None:
+        stream = s3_api.pull_obj_stream(CODES_S3_KEY)
+        _codes_cache = json.loads(stream.read())
+    return _codes_cache
+
+
+def refresh_access_token(code_holder, client_id, client_secret, s3_api: S3 = None):
+    global _codes_cache
     response = requests.post(
         "https://accounts.spotify.com/api/token",
         data={
@@ -43,9 +56,13 @@ def refresh_access_token(code_holder, client_id, client_secret):
     )
 
     code_holder["access_token"] = response.json()["access_token"]
+    _codes_cache = code_holder
 
-    with open("internal_tools/codes.json", "w") as writer:
-        json.dump(code_holder, writer)
+    if s3_api is not None:
+        s3_api.put_object(json.dumps(code_holder).encode(), CODES_S3_KEY)
+    else:
+        with open("internal_tools/codes.json", "w") as writer:
+            json.dump(code_holder, writer)
 
 
 def save_track(code_holder, record_id, job_uri, retries=0):
@@ -178,7 +195,7 @@ def do_external_search(code_holder, search: ExternalSearch, retries=0):
             client_id=settings.spotify_client_id,
             client_secret=settings.spotify_client_secret,
         )
-        do_external_search(
+        return do_external_search(
             code_holder=code_holder,
             search=search,
             retries=retries + 1,
@@ -187,7 +204,7 @@ def do_external_search(code_holder, search: ExternalSearch, retries=0):
     data = response.json()
 
     if "error" in data:
-        raise HTTPException(status_code=response.status_code, detail=data["error"])
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=data["error"])
 
     search_result = {}
 
@@ -249,11 +266,11 @@ def do_external_search(code_holder, search: ExternalSearch, retries=0):
 @upload_job_router.post("/external/search/", response_model=None)
 async def external_search(
     payload: ExternalSearch,
+    s3_api: S3 = Depends(get_S3),
     user_id=Depends(get_current_user),
 ):
 
-    with open("internal_tools/codes.json", "r") as reader:
-        code_holder = json.load(reader)
+    code_holder = load_codes(s3_api)
 
     search_result: dict = do_external_search(code_holder, payload)
 
@@ -267,8 +284,7 @@ async def report_recording(
     s3_api: S3 = Depends(get_S3),
     user_id=Depends(get_current_user),
 ):
-    with open("internal_tools/codes.json", "r") as reader:
-        code_holder = json.load(reader)
+    code_holder = load_codes(s3_api)
 
     async with session_maker() as session:
         stmt = select(MusiqlRepository).where(MusiqlRepository.uri == payload.uri)
@@ -357,8 +373,7 @@ async def add_music(
     s3_api: S3 = Depends(get_S3),
 ):
 
-    with open("internal_tools/codes.json", "r") as reader:
-        code_holder = json.load(reader)
+    code_holder = load_codes(s3_api)
 
     async with session_maker() as session:
         check_finished = select(UploadJobs).where(
