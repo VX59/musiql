@@ -1,3 +1,10 @@
+FROM node:20-alpine AS frontend-build
+WORKDIR /app
+COPY musiql-desktop/package*.json ./
+RUN npm ci
+COPY musiql-desktop/ ./
+RUN npm run build
+
 FROM public.ecr.aws/lambda/python:3.10
 WORKDIR /var/task
 ENV PYTHONPATH=/var/task
@@ -12,4 +19,5 @@ COPY authtoken_api.py ./authtoken_api.py
 COPY database ./database
 COPY musiql ./musiql
 COPY musiql_api ./musiql_api
+COPY --from=frontend-build /app/dist ./musiql-desktop/dist
 CMD ["musiql.handler.handler"]
