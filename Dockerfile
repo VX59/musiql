@@ -1,7 +1,7 @@
 FROM node:20-alpine AS frontend-build
 WORKDIR /app
-COPY musiql-desktop/package.json musiql-desktop/package-lock.json ./
-RUN npm ci --ignore-scripts
+COPY musiql-desktop/package.json ./
+RUN npm install --ignore-scripts
 COPY musiql-desktop/ ./
 RUN npm run build
 
