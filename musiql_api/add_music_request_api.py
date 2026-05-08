@@ -53,6 +53,7 @@ def refresh_access_token(code_holder, client_id, client_secret, s3_api: S3 = Non
             "client_id": client_id,
             "client_secret": client_secret,
         },
+        timeout=10,
     )
 
     code_holder["access_token"] = response.json()["access_token"]
@@ -187,7 +188,7 @@ def do_external_search(code_holder, search: ExternalSearch, retries=0):
     }
     url = "https://api.spotify.com/v1/search"
 
-    response = requests.get(url, headers=headers, params=params)
+    response = requests.get(url, headers=headers, params=params, timeout=10)
 
     if response.status_code == status.HTTP_401_UNAUTHORIZED:
         refresh_access_token(
