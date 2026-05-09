@@ -14,6 +14,7 @@ from database.models import (
     Albums,
     RecordArtistAssociation,
 )
+from utility import timer_log
 from sqlalchemy import update, or_, Select, delete
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
@@ -21,7 +22,7 @@ from datetime import datetime, timezone
 from .models_api import GraphAMP, get_recommendation_api
 from typing import List, Optional
 from enum import Enum
-
+from loguru import logger
 from authtoken_api import get_current_user
 
 musiql_api_router = APIRouter()
@@ -61,7 +62,9 @@ async def serve_record(
 ):
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == uri)
     async with session_maker() as session:
-        result = await session.execute(stmt)
+        async with timer_log(label="serve song", logger=logger, extra={"user_id": user_id}):
+            result = await session.execute(stmt)
+
         record = result.scalars().first()
 
         if record is None:
@@ -73,7 +76,9 @@ async def serve_record(
         filename = f"{record.uri}.wav"
         s3_key = f"musiql_dump/{filename}"
 
-        url = s3_service.get_presigned_url(s3_key)
+        async with timer_log(label="get presigned url", logger=logger, extra={"user_id": user_id}):
+            url = s3_service.get_presigned_url(s3_key)
+            
         body = {"url": url}
         headers = {"Content-Type": "application/json", "X-history-id": str(history_id)}
         return JSONResponse(content=body, headers=headers)
@@ -155,7 +160,9 @@ async def advanced_search_songs(
         raise ValueError("search query parser failed to generate a statement")
 
     async with session_maker() as session:
-        result = await session.execute(stmt)
+        async with timer_log(label="search", logger=logger, extra={"user_id": user_id}):
+            result = await session.execute(stmt)
+
         records = result.all()
 
         if records is None:
@@ -163,30 +170,31 @@ async def advanced_search_songs(
                 status_code=status.HTTP_404_NOT_FOUND, detail="no records found"
             )
 
-    if command != QueryLang.library:
-        identity_stmt = (
-            select(MusiqlRepository, Artists, Albums)
-            .select_from(UserLirbary)
-            .outerjoin(MusiqlRepository, UserLirbary.record_id == MusiqlRepository.uri)
-            .outerjoin(Albums, MusiqlRepository.album_uri == Albums.uri)
-            .outerjoin(
-                RecordArtistAssociation,
-                MusiqlRepository.uri == RecordArtistAssociation.record_uri,
+        if command != QueryLang.library:
+            identity_stmt = (
+                select(MusiqlRepository, Artists, Albums)
+                .select_from(UserLirbary)
+                .outerjoin(MusiqlRepository, UserLirbary.record_id == MusiqlRepository.uri)
+                .outerjoin(Albums, MusiqlRepository.album_uri == Albums.uri)
+                .outerjoin(
+                    RecordArtistAssociation,
+                    MusiqlRepository.uri == RecordArtistAssociation.record_uri,
+                )
+                .outerjoin(Artists, RecordArtistAssociation.artist_uri == Artists.uri)
+                .where(
+                    UserLirbary.user_id == user_id,
+                    or_(
+                        MusiqlRepository.title.ilike(f"%{payload.search_term}%"),
+                        Albums.album_name.ilike(f"%{payload.search_term}%"),
+                        Artists.artist_name.ilike(f"%{payload.search_term}%"),
+                    ),
+                )
+                .order_by(MusiqlRepository.created.desc())
             )
-            .outerjoin(Artists, RecordArtistAssociation.artist_uri == Artists.uri)
-            .where(
-                UserLirbary.user_id == user_id,
-                or_(
-                    MusiqlRepository.title.ilike(f"%{payload.search_term}%"),
-                    Albums.album_name.ilike(f"%{payload.search_term}%"),
-                    Artists.artist_name.ilike(f"%{payload.search_term}%"),
-                ),
-            )
-            .order_by(MusiqlRepository.created.desc())
-        )
 
-        async with session_maker() as session:
-            result = await session.execute(identity_stmt)
+            async with timer_log(label="filter search in library", logger=logger, extra={"user_id": user_id}):
+                result = await session.execute(identity_stmt)
+            
             identity_records = result.all()
 
             identity_uris = [r.uri for r, _, _ in identity_records]
@@ -196,10 +204,10 @@ async def advanced_search_songs(
                 for uri in [r.uri for r, _, _ in records]
             ]
 
-        search_context = list(zip(records, in_identity))
+            search_context = list(zip(records, in_identity))
 
-    else:
-        search_context = list(zip(records, [True] * len(records)))
+        else:
+            search_context = list(zip(records, [True] * len(records)))
 
     record_uris = [rec.uri for rec, _, _ in records]
 
@@ -325,32 +333,35 @@ async def sample_song(
             .join(Models, Users.uri == Models.user_id)
         )
 
-        result = await session.execute(stmt)
+        async with timer_log(label="get model", logger=logger, extra={"user_id": user_id}):
+            result = await session.execute(stmt)
+        
         model_uri = result.scalar_one_or_none()
         if model_uri is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="model not found"
             )
 
-    recommendation_api: GraphAMP = get_recommendation_api(model_uri)
+        recommendation_api: GraphAMP = get_recommendation_api(model_uri)
 
-    states: List[str] = recommendation_api.preempt(uri)
-    if not states:
-        return []
+        states: List[str] = recommendation_api.preempt(uri)
+        if not states:
+            return []
 
-    stmt = (
-        select(MusiqlRepository, Artists, Albums)
-        .select_from(MusiqlRepository)
-        .join(
-            RecordArtistAssociation,
-            MusiqlRepository.uri == RecordArtistAssociation.record_uri,
-        )
-        .join(Artists, RecordArtistAssociation.artist_uri == Artists.uri)
-        .join(Albums, MusiqlRepository.album_uri == Albums.uri)
-    ).where(MusiqlRepository.uri.in_(states))
+        stmt = (
+            select(MusiqlRepository, Artists, Albums)
+            .select_from(MusiqlRepository)
+            .join(
+                RecordArtistAssociation,
+                MusiqlRepository.uri == RecordArtistAssociation.record_uri,
+            )
+            .join(Artists, RecordArtistAssociation.artist_uri == Artists.uri)
+            .join(Albums, MusiqlRepository.album_uri == Albums.uri)
+        ).where(MusiqlRepository.uri.in_(states))
 
-    async with session_maker() as session:
-        result = await session.execute(stmt)
+        async with timer_log(label="sample song", logger=logger, extra={"user_id": user_id}):
+            result = await session.execute(stmt)
+        
         sample_records = result.all()
 
         if not sample_records:

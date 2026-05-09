@@ -1,5 +1,4 @@
 import requests
-import json
 import pickle
 
 from fastapi import APIRouter, HTTPException, status, Depends
@@ -14,82 +13,36 @@ from database.models import (
 )
 from authtoken_api import get_current_user
 
-from utility import make_uri, SourceTypes, JobTypes, JobStatus
+from utility import (
+    SourceTypes,
+    JobTypes,
+    JobStatus,
+    make_uri,
+    auto_token,
+    load_codes,
+)
 from database.db import get_session
 from boto3_tools import S3, get_S3
 from settings import Settings, get_settings
 from .data_models import spotify_item, spotify_playlist
 
-
-MAX_RETRIES = 3
-CODES_S3_KEY = "spotify_utils/codes.json"
-
-
-class ExpiredAccessToken(Exception):
-    pass
-
-
 settings: Settings = get_settings()
 
 
-_codes_cache: dict | None = None
+def save_track(
+    code_holder,
+    settings:Settings,
+    s3_api:S3,
+    record_id,
+    job_uri
+):
+    @auto_token(code_holder, settings, s3_api)
+    def save_track_request():
+        headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
+        url = f"https://api.spotify.com/v1/tracks/{record_id}"
+        return requests.get(url, headers=headers)
 
-
-def load_codes(s3_api: S3) -> dict:
-    global _codes_cache
-    if _codes_cache is None:
-        stream = s3_api.pull_obj_stream(CODES_S3_KEY)
-        _codes_cache = json.loads(stream.read())
-    return _codes_cache
-
-
-def refresh_access_token(code_holder, client_id, client_secret, s3_api: S3 = None):
-    global _codes_cache
-    response = requests.post(
-        "https://accounts.spotify.com/api/token",
-        data={
-            "grant_type": "refresh_token",
-            "refresh_token": code_holder["refresh_token"],
-            "client_id": client_id,
-            "client_secret": client_secret,
-        },
-        timeout=10,
-    )
-
-    code_holder["access_token"] = response.json()["access_token"]
-    _codes_cache = code_holder
-
-    if s3_api is not None:
-        s3_api.put_object(json.dumps(code_holder).encode(), CODES_S3_KEY)
-    else:
-        with open("internal_tools/codes.json", "w") as writer:
-            json.dump(code_holder, writer)
-
-
-def save_track(code_holder, record_id, job_uri, retries=0):
-    if retries >= MAX_RETRIES:
-        raise HTTPException(
-            status_code=500, detail="failed to refresh spotify access token"
-        )
-
-    headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
-    url = f"https://api.spotify.com/v1/tracks/{record_id}"
-
-    response = requests.get(url, headers=headers)
-
-    if response.status_code == status.HTTP_401_UNAUTHORIZED:
-        refresh_access_token(
-            code_holder,
-            client_id=settings.spotify_client_id,
-            client_secret=settings.spotify_client_secret,
-        )
-        save_track(
-            code_holder=code_holder,
-            record_id=record_id,
-            job_uri=job_uri,
-            retries=retries + 1,
-        )
-
+    response = save_track_request()
     data = response.json()
 
     if "error" in data:
@@ -103,31 +56,23 @@ def save_track(code_holder, record_id, job_uri, retries=0):
     return outpath, 1
 
 
-def save_playlist(code_holder, playlist_id, job_uri, retries=0):
-    if retries >= MAX_RETRIES:
-        raise HTTPException(
-            status_code=500, detail="failed to refresh spotify access token"
-        )
-
-    headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
-    url = f"https://api.spotify.com/v1/playlists/{playlist_id}"
-
+def save_playlist(
+    code_holder,
+    settings:Settings,
+    s3_api:S3,
+    playlist_id,
+    job_uri
+):
     all_items = []
 
     while url:
-        print(url)
-        response = requests.get(url, headers=headers)
+        @auto_token(code_holder, settings, s3_api)
+        def save_playlist_request():
+            headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
+            url = f"https://api.spotify.com/v1/playlists/{playlist_id}"
+            return requests.get(url, headers=headers)
 
-        if response.status_code == 401:
-            refresh_access_token(
-                code_holder,
-                client_id=settings.spotify_client_id,
-                client_secret=settings.spotify_client_secret,
-            )
-            save_playlist(
-                code_holder, playlist_id, job_uri=job_uri, retries=retries + 1
-            )
-
+        response = save_playlist_request()
         data = response.json()
 
         if "error" in data:
@@ -175,33 +120,25 @@ class ReportRecordingPayload(BaseModel):
     uri: str
 
 
-def do_external_search(code_holder, search: ExternalSearch, retries=0):
-    if retries >= MAX_RETRIES:
-        raise HTTPException(
-            status_code=500, detail="failed to refresh spotify access token"
-        )
-    headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
-    params = {
-        "q": search.search_term,
-        "type": ",".join(search.source_types),
-        "limit": min(search.limit + 5, 50),
-    }
-    url = "https://api.spotify.com/v1/search"
+def do_external_search(
+    code_holder,
+    settings:Settings,
+    s3_api:S3,
+    search:ExternalSearch
+):
+    @auto_token(code_holder, settings, s3_api)
+    def external_search_request():
+        headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
+        params = {
+            "q": search.search_term,
+            "type": ",".join(search.source_types),
+            "limit": min(search.limit + 5, 50),
+        }
+        url = "https://api.spotify.com/v1/search"
 
-    response = requests.get(url, headers=headers, params=params, timeout=10)
+        return requests.get(url, headers=headers, params=params, timeout=10)
 
-    if response.status_code == status.HTTP_401_UNAUTHORIZED:
-        refresh_access_token(
-            code_holder,
-            client_id=settings.spotify_client_id,
-            client_secret=settings.spotify_client_secret,
-        )
-        return do_external_search(
-            code_holder=code_holder,
-            search=search,
-            retries=retries + 1,
-        )
-
+    response = external_search_request()
     data = response.json()
 
     if "error" in data:
@@ -270,13 +207,11 @@ def do_external_search(code_holder, search: ExternalSearch, retries=0):
 async def external_search(
     payload: ExternalSearch,
     s3_api: S3 = Depends(get_S3),
+    settings: Settings = Depends(get_settings),
     user_id=Depends(get_current_user),
 ):
-
     code_holder = load_codes(s3_api)
-
-    search_result: dict = do_external_search(code_holder, payload)
-
+    search_result: dict = do_external_search(code_holder, settings, s3_api, payload)
     return search_result
 
 
@@ -284,6 +219,7 @@ async def external_search(
 async def report_recording(
     payload: ReportRecordingPayload,
     session_maker: sessionmaker = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     s3_api: S3 = Depends(get_S3),
     user_id=Depends(get_current_user),
 ):
@@ -315,13 +251,13 @@ async def report_recording(
         if job is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"{job.status} {payload.source_type} {JobTypes.correction} job already exists for uri {payload.uri}",
+                detail=f"{job.status} {SourceTypes.track} {JobTypes.correction} job already exists for uri {payload.uri}",
             )
 
     job_uri = f"job:{make_uri()}"
 
     out_path, subtasks = save_track(
-        code_holder=code_holder, record_id=external_uri, job_uri=job_uri
+        code_holder, settings, s3_api, record_id=external_uri, job_uri=job_uri
     )
 
     async with session_maker() as session:
@@ -373,6 +309,7 @@ async def add_music(
     payload: CreateUploadJob,
     session_maker: sessionmaker = Depends(get_session),
     user_id=Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
     s3_api: S3 = Depends(get_S3),
 ):
 
@@ -410,15 +347,15 @@ async def add_music(
     match payload.source_type:
         case SourceTypes.playlist:
             out_path, subtasks = save_playlist(
-                code_holder=code_holder, playlist_id=payload.source_uri, job_uri=job_uri
+                code_holder, settings, s3_api, playlist_id=payload.source_uri, job_uri=job_uri
             )
         case SourceTypes.track:
             out_path, subtasks = save_track(
-                code_holder=code_holder, record_id=payload.source_uri, job_uri=job_uri
+                code_holder, settings, s3_api, record_id=payload.source_uri, job_uri=job_uri
             )
         case _:
             raise HTTPException(
-                status_code=400, detail=f"invalid source type {payload.source_type}"
+                status_code=status.HTTP_400_BAD_REQUEST, detail=f"invalid source type {payload.source_type}"
             )
 
     async with session_maker() as session:
