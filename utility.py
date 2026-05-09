@@ -5,7 +5,9 @@ import requests
 import json
 from fastapi import HTTPException, status
 from boto3_tools import S3
-from settings import get_settings, Settings
+from settings import Settings
+from time import perf_counter
+import logging
 
 def make_uri():
     uri = base64.urlsafe_b64encode(secrets.token_bytes(16)).decode().rstrip("=")
@@ -35,11 +37,13 @@ class JobStatus(str, Enum):
     in_progress = "in progress"
     finished = "finished"
 
+
 _codes_cache: dict | None = None
 
 
 MAX_RETRIES = 3
 CODES_S3_KEY = "spotify_utils/codes.json"
+
 
 class ExpiredAccessToken(Exception):
     pass
@@ -53,7 +57,7 @@ def load_codes(s3_api: S3) -> dict:
     return _codes_cache
 
 
-def refresh_access_token(code_holder, settings:Settings, s3_api:S3):
+def refresh_access_token(code_holder, settings: Settings, s3_api: S3):
     global _codes_cache
     response = requests.post(
         "https://accounts.spotify.com/api/token",
@@ -72,33 +76,30 @@ def refresh_access_token(code_holder, settings:Settings, s3_api:S3):
     s3_api.put_object(json.dumps(code_holder).encode(), CODES_S3_KEY)
 
 
-def auto_token(settings:Settings, s3_api:S3, code_holder):
+def auto_token(settings: Settings, s3_api: S3, code_holder):
     def decorator(func):
         def wrapper(retries=0):
             if retries >= MAX_RETRIES:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="failed to refresh spotify access token"
+                    detail="failed to refresh spotify access token",
                 )
             response = func()
             if response.status_code == status.HTTP_401_UNAUTHORIZED:
-                refresh_access_token(
-                    code_holder,
-                    settings,
-                    s3_api
-                )
-                wrapper(retries+1)
+                refresh_access_token(code_holder, settings, s3_api)
+                wrapper(retries + 1)
 
             return response
+
         return wrapper
+
     return decorator
 
 
-from time import perf_counter
-import logging
-
 class timer_log:
-    def __init__(self, label: str = "", logger: logging.Logger | None = None, extra: dict = {}):
+    def __init__(
+        self, label: str = "", logger: logging.Logger | None = None, extra: dict = {}
+    ):
         self.label = label
         self.logger = logger or logging.getLogger(__name__)
         self.extra = extra
@@ -122,4 +123,3 @@ class timer_log:
 
     async def __aexit__(self, *_):
         self._log(perf_counter() - self._start)
-

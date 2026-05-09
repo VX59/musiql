@@ -62,7 +62,9 @@ async def serve_record(
 ):
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == uri)
     async with session_maker() as session:
-        async with timer_log(label="serve song", logger=logger, extra={"user_id": user_id}):
+        async with timer_log(
+            label="serve song", logger=logger, extra={"user_id": user_id}
+        ):
             result = await session.execute(stmt)
 
         record = result.scalars().first()
@@ -76,9 +78,11 @@ async def serve_record(
         filename = f"{record.uri}.wav"
         s3_key = f"musiql_dump/{filename}"
 
-        async with timer_log(label="get presigned url", logger=logger, extra={"user_id": user_id}):
+        async with timer_log(
+            label="get presigned url", logger=logger, extra={"user_id": user_id}
+        ):
             url = s3_service.get_presigned_url(s3_key)
-            
+
         body = {"url": url}
         headers = {"Content-Type": "application/json", "X-history-id": str(history_id)}
         return JSONResponse(content=body, headers=headers)
@@ -174,7 +178,9 @@ async def advanced_search_songs(
             identity_stmt = (
                 select(MusiqlRepository, Artists, Albums)
                 .select_from(UserLirbary)
-                .outerjoin(MusiqlRepository, UserLirbary.record_id == MusiqlRepository.uri)
+                .outerjoin(
+                    MusiqlRepository, UserLirbary.record_id == MusiqlRepository.uri
+                )
                 .outerjoin(Albums, MusiqlRepository.album_uri == Albums.uri)
                 .outerjoin(
                     RecordArtistAssociation,
@@ -192,9 +198,13 @@ async def advanced_search_songs(
                 .order_by(MusiqlRepository.created.desc())
             )
 
-            async with timer_log(label="filter search in library", logger=logger, extra={"user_id": user_id}):
+            async with timer_log(
+                label="filter search in library",
+                logger=logger,
+                extra={"user_id": user_id},
+            ):
                 result = await session.execute(identity_stmt)
-            
+
             identity_records = result.all()
 
             identity_uris = [r.uri for r, _, _ in identity_records]
@@ -333,9 +343,11 @@ async def sample_song(
             .join(Models, Users.uri == Models.user_id)
         )
 
-        async with timer_log(label="get model", logger=logger, extra={"user_id": user_id}):
+        async with timer_log(
+            label="get model", logger=logger, extra={"user_id": user_id}
+        ):
             result = await session.execute(stmt)
-        
+
         model_uri = result.scalar_one_or_none()
         if model_uri is None:
             raise HTTPException(
@@ -359,9 +371,11 @@ async def sample_song(
             .join(Albums, MusiqlRepository.album_uri == Albums.uri)
         ).where(MusiqlRepository.uri.in_(states))
 
-        async with timer_log(label="sample song", logger=logger, extra={"user_id": user_id}):
+        async with timer_log(
+            label="sample song", logger=logger, extra={"user_id": user_id}
+        ):
             result = await session.execute(stmt)
-        
+
         sample_records = result.all()
 
         if not sample_records:

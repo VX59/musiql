@@ -29,13 +29,7 @@ from .data_models import spotify_item, spotify_playlist
 settings: Settings = get_settings()
 
 
-def save_track(
-    code_holder,
-    settings:Settings,
-    s3_api:S3,
-    record_id,
-    job_uri
-):
+def save_track(code_holder, settings: Settings, s3_api: S3, record_id, job_uri):
     @auto_token(code_holder, settings, s3_api)
     def save_track_request():
         headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
@@ -56,20 +50,14 @@ def save_track(
     return outpath, 1
 
 
-def save_playlist(
-    code_holder,
-    settings:Settings,
-    s3_api:S3,
-    playlist_id,
-    job_uri
-):
+def save_playlist(code_holder, settings: Settings, s3_api: S3, playlist_id, job_uri):
     all_items = []
-
+    url = f"https://api.spotify.com/v1/playlists/{playlist_id}"
+    headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
+    
     while url:
         @auto_token(code_holder, settings, s3_api)
         def save_playlist_request():
-            headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
-            url = f"https://api.spotify.com/v1/playlists/{playlist_id}"
             return requests.get(url, headers=headers)
 
         response = save_playlist_request()
@@ -121,10 +109,7 @@ class ReportRecordingPayload(BaseModel):
 
 
 def do_external_search(
-    code_holder,
-    settings:Settings,
-    s3_api:S3,
-    search:ExternalSearch
+    code_holder, settings: Settings, s3_api: S3, search: ExternalSearch
 ):
     @auto_token(code_holder, settings, s3_api)
     def external_search_request():
@@ -347,15 +332,24 @@ async def add_music(
     match payload.source_type:
         case SourceTypes.playlist:
             out_path, subtasks = save_playlist(
-                code_holder, settings, s3_api, playlist_id=payload.source_uri, job_uri=job_uri
+                code_holder,
+                settings,
+                s3_api,
+                playlist_id=payload.source_uri,
+                job_uri=job_uri,
             )
         case SourceTypes.track:
             out_path, subtasks = save_track(
-                code_holder, settings, s3_api, record_id=payload.source_uri, job_uri=job_uri
+                code_holder,
+                settings,
+                s3_api,
+                record_id=payload.source_uri,
+                job_uri=job_uri,
             )
         case _:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=f"invalid source type {payload.source_type}"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"invalid source type {payload.source_type}",
             )
 
     async with session_maker() as session:
