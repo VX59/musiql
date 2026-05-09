@@ -18,8 +18,9 @@ from utility import (
     JobTypes,
     JobStatus,
     make_uri,
-    auto_token,
+    spotify_api_request,
     load_codes,
+    timer_log,
 )
 from database.db import get_session
 from boto3_tools import S3, get_S3
@@ -29,8 +30,8 @@ from .data_models import spotify_item, spotify_playlist
 settings: Settings = get_settings()
 
 
-def save_track(code_holder, settings: Settings, s3_api: S3, record_id, job_uri):
-    @auto_token(code_holder, settings, s3_api)
+def save_track(code_holder, record_id, job_uri):
+    @spotify_api_request(code_holder, label="get track metadata")
     def save_track_request():
         headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
         url = f"https://api.spotify.com/v1/tracks/{record_id}"
@@ -50,13 +51,14 @@ def save_track(code_holder, settings: Settings, s3_api: S3, record_id, job_uri):
     return outpath, 1
 
 
-def save_playlist(code_holder, settings: Settings, s3_api: S3, playlist_id, job_uri):
+def save_playlist(code_holder, playlist_id, job_uri):
     all_items = []
     url = f"https://api.spotify.com/v1/playlists/{playlist_id}"
     headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
-    
+
     while url:
-        @auto_token(code_holder, settings, s3_api)
+
+        @spotify_api_request(code_holder, label="get playlist metadata chunk")
         def save_playlist_request():
             return requests.get(url, headers=headers)
 
@@ -108,10 +110,8 @@ class ReportRecordingPayload(BaseModel):
     uri: str
 
 
-def do_external_search(
-    code_holder, settings: Settings, s3_api: S3, search: ExternalSearch
-):
-    @auto_token(code_holder, settings, s3_api)
+def do_external_search(code_holder, search: ExternalSearch):
+    @spotify_api_request(code_holder, label="search spotify")
     def external_search_request():
         headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
         params = {
@@ -192,11 +192,10 @@ def do_external_search(
 async def external_search(
     payload: ExternalSearch,
     s3_api: S3 = Depends(get_S3),
-    settings: Settings = Depends(get_settings),
     user_id=Depends(get_current_user),
 ):
     code_holder = load_codes(s3_api)
-    search_result: dict = do_external_search(code_holder, settings, s3_api, payload)
+    search_result: dict = do_external_search(code_holder, payload)
     return search_result
 
 
@@ -212,7 +211,9 @@ async def report_recording(
 
     async with session_maker() as session:
         stmt = select(MusiqlRepository).where(MusiqlRepository.uri == payload.uri)
-        result = await session.execute(stmt)
+
+        async with timer_log(label="check if song is already added"):
+            result = await session.execute(stmt)
 
         reported_record: MusiqlRepository = result.scalar_one_or_none()
 
@@ -230,7 +231,8 @@ async def report_recording(
             UploadJobs.status not in [JobStatus.finished, JobStatus.failed],
         )
 
-        result = await session.execute(check_reported)
+        async with timer_log(label="check if song is reported"):
+            result = await session.execute(check_reported)
 
         job: UploadJobs = result.scalar_one_or_none()
         if job is not None:
@@ -306,7 +308,9 @@ async def add_music(
             UploadJobs.status == JobStatus.finished,
         )
 
-        result = await session.execute(check_finished)
+        async with timer_log(label="check if finished integration job for song exists"):
+            result = await session.execute(check_finished)
+
         if result.first() is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -319,7 +323,11 @@ async def add_music(
             UploadJobs.status != JobStatus.finished,
         )
 
-        result = await session.execute(check_job)
+        async with timer_log(
+            label="check if unfinished integration job for song exists"
+        ):
+            result = await session.execute(check_job)
+
         job: UploadJobs = result.scalar_one_or_none()
         if job is not None:
             raise HTTPException(
@@ -327,32 +335,27 @@ async def add_music(
                 detail=f"{payload.source_type} {JobTypes.integration} job already exists for external uri {payload.source_uri}",
             )
 
-    job_uri = f"job:{make_uri()}"
+        job_uri = f"job:{make_uri()}"
 
-    match payload.source_type:
-        case SourceTypes.playlist:
-            out_path, subtasks = save_playlist(
-                code_holder,
-                settings,
-                s3_api,
-                playlist_id=payload.source_uri,
-                job_uri=job_uri,
-            )
-        case SourceTypes.track:
-            out_path, subtasks = save_track(
-                code_holder,
-                settings,
-                s3_api,
-                record_id=payload.source_uri,
-                job_uri=job_uri,
-            )
-        case _:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"invalid source type {payload.source_type}",
-            )
+        match payload.source_type:
+            case SourceTypes.playlist:
+                out_path, subtasks = save_playlist(
+                    code_holder,
+                    playlist_id=payload.source_uri,
+                    job_uri=job_uri,
+                )
+            case SourceTypes.track:
+                out_path, subtasks = save_track(
+                    code_holder,
+                    record_id=payload.source_uri,
+                    job_uri=job_uri,
+                )
+            case _:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"invalid source type {payload.source_type}",
+                )
 
-    async with session_maker() as session:
         job = UploadJobs(
             uri=job_uri,
             source_type=payload.source_type,
@@ -367,7 +370,6 @@ async def add_music(
         )
 
         session.add(job)
-
         await session.commit()
 
     upload_id, parts = s3_api.upload_object_from_path(out_path, out_path)
@@ -394,7 +396,9 @@ async def get_jobs(
             )
             .order_by(UploadJobs.dttm.desc())
         )
-        result = await session.execute(stmt)
+
+        async with timer_log(label="get upload jobs", extra={"user_id": user_id}):
+            result = await session.execute(stmt)
         jobs: list[UploadJobs] = result.scalars().all()
 
         if not jobs:

@@ -12,5 +12,5 @@ alembic.ini
 updates.log
 musiql.egg-info
 .env
-
+.ruff_cache
 CLAUDE.md

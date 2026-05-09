@@ -22,8 +22,8 @@ from datetime import datetime, timezone
 from .models_api import GraphAMP, get_recommendation_api
 from typing import List, Optional
 from enum import Enum
-from loguru import logger
 from authtoken_api import get_current_user
+import asyncio
 
 musiql_api_router = APIRouter()
 
@@ -62,9 +62,7 @@ async def serve_record(
 ):
     stmt = select(MusiqlRepository).where(MusiqlRepository.uri == uri)
     async with session_maker() as session:
-        async with timer_log(
-            label="serve song", logger=logger, extra={"user_id": user_id}
-        ):
+        async with timer_log(label="serve song", extra={"user_id": user_id}):
             result = await session.execute(stmt)
 
         record = result.scalars().first()
@@ -78,9 +76,7 @@ async def serve_record(
         filename = f"{record.uri}.wav"
         s3_key = f"musiql_dump/{filename}"
 
-        async with timer_log(
-            label="get presigned url", logger=logger, extra={"user_id": user_id}
-        ):
+        async with timer_log(label="get presigned url", extra={"user_id": user_id}):
             url = s3_service.get_presigned_url(s3_key)
 
         body = {"url": url}
@@ -164,7 +160,7 @@ async def advanced_search_songs(
         raise ValueError("search query parser failed to generate a statement")
 
     async with session_maker() as session:
-        async with timer_log(label="search", logger=logger, extra={"user_id": user_id}):
+        async with timer_log(label="search musiql", extra={"user_id": user_id}):
             result = await session.execute(stmt)
 
         records = result.all()
@@ -200,7 +196,6 @@ async def advanced_search_songs(
 
             async with timer_log(
                 label="filter search in library",
-                logger=logger,
                 extra={"user_id": user_id},
             ):
                 result = await session.execute(identity_stmt)
@@ -343,9 +338,7 @@ async def sample_song(
             .join(Models, Users.uri == Models.user_id)
         )
 
-        async with timer_log(
-            label="get model", logger=logger, extra={"user_id": user_id}
-        ):
+        async with timer_log(label="get model", extra={"user_id": user_id}):
             result = await session.execute(stmt)
 
         model_uri = result.scalar_one_or_none()
@@ -354,7 +347,11 @@ async def sample_song(
                 status_code=status.HTTP_404_NOT_FOUND, detail="model not found"
             )
 
-        recommendation_api: GraphAMP = get_recommendation_api(model_uri)
+        async with timer_log(label="load model", extra={"user_id": user_id}):
+            loop = asyncio.get_event_loop()
+            recommendation_api: GraphAMP = await loop.run_in_executor(
+                None, get_recommendation_api, model_uri
+            )
 
         states: List[str] = recommendation_api.preempt(uri)
         if not states:
@@ -371,9 +368,7 @@ async def sample_song(
             .join(Albums, MusiqlRepository.album_uri == Albums.uri)
         ).where(MusiqlRepository.uri.in_(states))
 
-        async with timer_log(
-            label="sample song", logger=logger, extra={"user_id": user_id}
-        ):
+        async with timer_log(label="sample song", extra={"user_id": user_id}):
             result = await session.execute(stmt)
 
         sample_records = result.all()
