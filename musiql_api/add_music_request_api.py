@@ -244,7 +244,7 @@ async def report_recording(
     job_uri = f"job:{make_uri()}"
 
     out_path, subtasks = save_track(
-        code_holder, settings, s3_api, record_id=external_uri, job_uri=job_uri
+        code_holder, record_id=external_uri, job_uri=job_uri
     )
 
     async with session_maker() as session:
@@ -296,43 +296,57 @@ async def add_music(
     payload: CreateUploadJob,
     session_maker: sessionmaker = Depends(get_session),
     user_id=Depends(get_current_user),
-    settings: Settings = Depends(get_settings),
     s3_api: S3 = Depends(get_S3),
 ):
 
     code_holder = load_codes(s3_api)
 
     async with session_maker() as session:
-        check_finished = select(UploadJobs).where(
+        print(f"spotify:track:{payload.source_uri}")
+        if payload.source_type == SourceTypes.track:
+            check_repository = select(MusiqlRepository).where(
+                MusiqlRepository.external_uri == f"spotify:track:{payload.source_uri}"
+            )
+
+            async with timer_log(label="check repository for track"):
+                result = await session.execute(check_repository)
+
+            if result.first() is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{payload.source_uri} is already added to the repository",
+                )
+
+        check_integration_job = select(UploadJobs).where(
             UploadJobs.source_id == payload.source_uri,
-            UploadJobs.status == JobStatus.finished,
+            UploadJobs.job_type == JobTypes.integration,
         )
 
-        async with timer_log(label="check if finished integration job for song exists"):
-            result = await session.execute(check_finished)
+        async with timer_log(label="check if integration job for song exists"):
+            result = await session.execute(check_integration_job)
 
         if result.first() is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"already added {payload.source_type} {payload.source_uri}",
+                detail=f"{payload.source_type} {JobTypes.integration} job already exists for {payload.source_uri}",
             )
 
-        check_job = select(UploadJobs).where(
-            UploadJobs.source_type == payload.source_type,
+        check_correction_job = select(UploadJobs).where(
             UploadJobs.source_id == payload.source_uri,
             UploadJobs.status != JobStatus.finished,
+            UploadJobs.job_type == JobTypes.correction,
         )
 
         async with timer_log(
-            label="check if unfinished integration job for song exists"
+            label="check if unfinished correction job for song exists"
         ):
-            result = await session.execute(check_job)
+            result = await session.execute(check_correction_job)
 
         job: UploadJobs = result.scalar_one_or_none()
         if job is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"{payload.source_type} {JobTypes.integration} job already exists for external uri {payload.source_uri}",
+                detail=f"unfinished {payload.source_type} {JobTypes.correction} job already exists for {payload.source_type}",
             )
 
         job_uri = f"job:{make_uri()}"
