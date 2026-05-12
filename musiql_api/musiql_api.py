@@ -139,6 +139,7 @@ def parse_search_query(search_term: str, user_id) -> Optional[Select]:
                 .where(
                     or_(
                         MusiqlRepository.title.ilike(f"%{search_term}%"),
+                        MusiqlRepository.added_by.ilike(f"%{search_term}%"),
                         Albums.album_name.ilike(f"%{search_term}%"),
                         Artists.artist_name.ilike(f"%{search_term}%"),
                     )
@@ -187,6 +188,7 @@ async def advanced_search_songs(
                     UserLirbary.user_id == user_id,
                     or_(
                         MusiqlRepository.title.ilike(f"%{payload.search_term}%"),
+                        MusiqlRepository.added_by.ilike(f"%{payload.search_term}%"),
                         Albums.album_name.ilike(f"%{payload.search_term}%"),
                         Artists.artist_name.ilike(f"%{payload.search_term}%"),
                     ),

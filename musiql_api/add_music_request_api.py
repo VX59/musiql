@@ -331,24 +331,6 @@ async def add_music(
                 detail=f"{payload.source_type} {JobTypes.integration} job already exists for {payload.source_uri}",
             )
 
-        check_correction_job = select(UploadJobs).where(
-            UploadJobs.source_id == payload.source_uri,
-            UploadJobs.status != JobStatus.finished,
-            UploadJobs.job_type == JobTypes.correction,
-        )
-
-        async with timer_log(
-            label="check if unfinished correction job for song exists"
-        ):
-            result = await session.execute(check_correction_job)
-
-        job: UploadJobs = result.scalar_one_or_none()
-        if job is not None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"unfinished {payload.source_type} {JobTypes.correction} job already exists for {payload.source_type}",
-            )
-
         job_uri = f"job:{make_uri()}"
 
         match payload.source_type:
