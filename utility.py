@@ -81,7 +81,7 @@ def refresh_access_token(code_holder):
     s3_api.put_object(json.dumps(code_holder).encode(), CODES_S3_KEY)
 
 
-def spotify_api_request(code_holder, label: str = ""):
+def retry(code_holder, label: str = ""):
     def decorator(func):
         def wrapper(retries=0):
             if retries >= MAX_RETRIES:

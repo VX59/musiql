@@ -18,20 +18,20 @@ from utility import (
     JobTypes,
     JobStatus,
     make_uri,
-    spotify_api_request,
+    retry,
     load_codes,
     timer_log,
 )
 from database.db import get_session
 from boto3_tools import S3, get_S3
 from settings import Settings, get_settings
-from .data_models import spotify_item, spotify_playlist
+from .data_models import spotify_item, spotify_playlist, spotify_album
 
 settings: Settings = get_settings()
 
 
 def save_track(code_holder, record_id, job_uri):
-    @spotify_api_request(code_holder, label="get track metadata")
+    @retry(code_holder, label="get track metadata")
     def save_track_request():
         headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
         url = f"https://api.spotify.com/v1/tracks/{record_id}"
@@ -51,6 +51,54 @@ def save_track(code_holder, record_id, job_uri):
     return outpath, 1
 
 
+def save_album(code_holder, album_id, job_uri):
+    all_items = []
+    url = f"https://api.spotify.com/v1/albums/{album_id}"
+    headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
+
+    @retry(code_holder, label="get album metadata chunk")
+    def save_album_request():
+        return requests.get(url, headers=headers)
+
+    response = save_album_request()
+    data = response.json()
+
+    if "error" in data:
+        raise HTTPException(status_code=response.status_code, detail=data["error"])
+
+    items = data["tracks"]["items"]
+    all_items.extend(items)
+
+    album_stub = {
+        k: data.get(k)
+        for k in (
+            "type",
+            "album_type",
+            "href",
+            "id",
+            "images",
+            "name",
+            "release_date",
+            "release_date_precision",
+            "uri",
+            "artists",
+            "external_urls",
+            "total_tracks",
+        )
+    }
+
+    items_obj: list[spotify_item] = [
+        spotify_item.create_from_dict({**entry, "album": album_stub})
+        for entry in all_items
+    ]
+
+    outpath = f"add_music_jobs/{job_uri}.dump"
+    with open(outpath, "wb") as f:
+        pickle.dump(items_obj, f)
+
+    return outpath, len(all_items)
+
+
 def save_playlist(code_holder, playlist_id, job_uri):
     all_items = []
     url = f"https://api.spotify.com/v1/playlists/{playlist_id}"
@@ -58,7 +106,7 @@ def save_playlist(code_holder, playlist_id, job_uri):
 
     while url:
 
-        @spotify_api_request(code_holder, label="get playlist metadata chunk")
+        @retry(code_holder, label="get playlist metadata chunk")
         def save_playlist_request():
             return requests.get(url, headers=headers)
 
@@ -111,7 +159,7 @@ class ReportRecordingPayload(BaseModel):
 
 
 def do_external_search(code_holder, search: ExternalSearch):
-    @spotify_api_request(code_holder, label="search spotify")
+    @retry(code_holder, label="search spotify")
     def external_search_request():
         headers = {"Authorization": f"Bearer {code_holder['access_token']}"}
         params = {
@@ -155,7 +203,24 @@ def do_external_search(code_holder, search: ExternalSearch):
                     search_result["tracks"].append(cleaned_track)
 
             case SourceTypes.album:
-                pass
+                search_result["albums"] = []
+
+                for album in data["albums"]["items"]:
+                    if album is None:
+                        continue
+                    if len(search_result["albums"]) >= search.limit:
+                        break
+                    album_obj = spotify_album.create_from_dict(album)
+                    album_id = album_obj.uri.split(":")[-1]
+                    cleaned_album = {
+                        "external_uri": album_id,
+                        "title": album_obj.name,
+                        "artists": [artist.name for artist in album_obj.artists],
+                        "tracks": album_obj.total_tracks,
+                    }
+
+                    search_result["albums"].append(cleaned_album)
+
             case SourceTypes.playlist:
                 search_result["playlists"] = []
 
@@ -339,6 +404,10 @@ async def add_music(
                     code_holder,
                     playlist_id=payload.source_uri,
                     job_uri=job_uri,
+                )
+            case SourceTypes.album:
+                out_path, subtasks = save_album(
+                    code_holder, album_id=payload.source_uri, job_uri=job_uri
                 )
             case SourceTypes.track:
                 out_path, subtasks = save_track(
