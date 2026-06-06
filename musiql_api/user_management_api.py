@@ -32,7 +32,7 @@ class CreateModelPayload(BaseModel):
     model_type: ModelTypes
 
 
-@user_management_router.post("/musiql/login/user", response_model=None)
+@user_management_router.post("/login/user", response_model=None)
 async def user_login(
     payload: LoginUserPayload,
     session_maker: sessionmaker = Depends(get_session),
@@ -54,7 +54,7 @@ async def user_login(
         return {"token": token}
 
 
-@user_management_router.post("/musiql/create/user", response_model=None)
+@user_management_router.post("/create/user", response_model=None)
 async def create_user(
     payload: CreateUserPayload,
     session_maker: sessionmaker = Depends(get_session),
@@ -83,7 +83,7 @@ async def create_user(
         )
 
 
-@user_management_router.post("/musiql/create/model", response_model=None)
+@user_management_router.post("/create/model", response_model=None)
 async def create_model(
     payload: CreateModelPayload,
     session_maker: sessionmaker = Depends(get_session),
