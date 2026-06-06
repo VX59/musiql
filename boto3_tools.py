@@ -4,27 +4,8 @@ from typing import List
 from settings import get_settings
 from fastapi import HTTPException
 import os
-from sqlalchemy.future import select
-from database.models import MusiqlRepository
-from sqlalchemy.orm import sessionmaker
 from functools import lru_cache
 from loguru import logger
-
-
-class DuplicateResource(Exception):
-    pass
-
-
-async def resource_exists(hash: bytes, session_maker: sessionmaker) -> bool:
-    stmt = select(MusiqlRepository).where(MusiqlRepository.hash == hash)
-
-    async with session_maker() as session:
-        result = await session.execute(stmt)
-        record = result.scalars().first()
-        if record is not None:
-            return True
-
-    return False
 
 
 class S3:

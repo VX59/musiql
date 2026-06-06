@@ -14,3 +14,6 @@ musiql.egg-info
 .env
 .ruff_cache
 CLAUDE.md
+graphify-out
+scripts
+.claude
