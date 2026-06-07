@@ -4,6 +4,7 @@ music_dump/
 musiql-desktop/node_modules/
 add_music_jobs/
 migrations/versions/
+graphify-out*
 *.json
 *.png
 *.pyc

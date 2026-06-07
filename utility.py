@@ -105,7 +105,7 @@ def retry(code_holder, label: str = ""):
 
 class timer_log:
     def __init__(self, label: str = "", extra: dict = {}):
-        self.label = "timer_log -" + label
+        self.label = "timer_log - " + label
         self.logger = logger
         self.extra = extra
 

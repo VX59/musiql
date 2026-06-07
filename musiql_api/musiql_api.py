@@ -456,7 +456,7 @@ async def get_album(
         "title": album.album_name,
         "artists": album_artists,
         "preview_url": album.cover_preview_url,
-        "thumbnail_url": album.cover_thumbnail_url,
+        "cover_url": album.cover_full_size_url,
         "tracks": [
             {
                 "uri": rec.uri,
@@ -469,7 +469,7 @@ async def get_album(
                     if r[0].uri == rec.uri and r[1] is not None
                 ],
                 "preview_url": album.cover_preview_url,
-                "thumbnail_url": album.cover_thumbnail_url,
+                "cover_url": album.cover_full_size_url,
                 "in_library": lib is not None,
             }
             for rec, _, lib in track_rows
@@ -509,7 +509,7 @@ async def get_artist(
                 "uri": alb.uri,
                 "album_name": alb.album_name,
                 "cover_thumbnail_url": alb.cover_thumbnail_url,
-                "cover_preview_url": alb.cover_preview_url,
+                "cover_url": alb.cover_full_size_url,
                 "release_date": alb.release_date.isoformat()
                 if alb.release_date is not None
                 else None,

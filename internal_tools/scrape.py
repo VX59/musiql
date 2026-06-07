@@ -202,6 +202,7 @@ async def scrape_records(code_holder, job: UploadJobs):
 
         obj_key = f"musiql_dump/{internal_record_uri}.wav"
 
+        os.makedirs("musiql_dump", exist_ok=True)
         t_rec_start = time.time()
         proc = record_virtual_audio(output_file=obj_key)
         time.sleep(1.0)
