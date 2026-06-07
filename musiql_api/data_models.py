@@ -93,7 +93,11 @@ class spotify_album:
 
     @classmethod
     def create_from_dict(cls, album: dict):
-        return cls(**album)
+        obj = cls(**album)
+        obj.artists = [
+            spotify_artist.create_from_dict(a) for a in album.get("artists", [])
+        ]
+        return obj
 
 
 @dataclasses.dataclass

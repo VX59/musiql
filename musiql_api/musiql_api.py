@@ -13,6 +13,7 @@ from database.models import (
     Artists,
     Albums,
     RecordArtistAssociation,
+    AlbumArtistAssociation,
 )
 from utility import timer_log
 from sqlalchemy import update, or_, Select, delete
@@ -53,7 +54,7 @@ async def track_history(uri: str, user_id: str, session):
     return new_record.id
 
 
-@musiql_api_router.get("/musiql/serve/{uri}")
+@musiql_api_router.get("/serve/{uri}")
 async def serve_record(
     uri: str,
     session_maker: sessionmaker = Depends(get_session),
@@ -150,7 +151,7 @@ def parse_search_query(search_term: str, user_id) -> Optional[Select]:
     return stmt, command
 
 
-@musiql_api_router.post("/musiql/search/advanced", response_model=None)
+@musiql_api_router.post("/search/advanced", response_model=None)
 async def advanced_search_songs(
     payload: AdvancedSearchPayload = None,
     session_maker: sessionmaker = Depends(get_session),
@@ -226,9 +227,9 @@ async def advanced_search_songs(
                 "title": rec.title,
                 "album": alb.album_name,
                 "artists": [
-                    artist.artist_name
+                    {"uri": artist.uri, "name": artist.artist_name}
                     for record, artist, _ in records
-                    if record.uri == rec.uri
+                    if record.uri == rec.uri and artist is not None
                 ],
                 "added_by": rec.added_by,
                 "in_library": in_identity,
@@ -282,7 +283,7 @@ async def update_duration(
         await session.commit()
 
 
-@musiql_api_router.post("/musiql/log/engagement/")
+@musiql_api_router.post("/log/engagement/")
 async def log_engagement(
     skip_payload: SkipPayload,
     session_maker: sessionmaker = Depends(get_session),
@@ -296,7 +297,7 @@ async def log_engagement(
     return {"status": "ok"}
 
 
-@musiql_api_router.get("/musiql/library/add/{uri}")
+@musiql_api_router.get("/library/add/{uri}")
 async def add_to_library(
     uri: str,
     session_maker: sessionmaker = Depends(get_session),
@@ -310,7 +311,7 @@ async def add_to_library(
     return {"status": f"successfully added {uri} to {user_id}'s library"}
 
 
-@musiql_api_router.get("/musiql/library/remove/{uri}")
+@musiql_api_router.get("/library/remove/{uri}")
 async def remove_from_library(
     uri: str,
     session_maker: sessionmaker = Depends(get_session),
@@ -326,7 +327,7 @@ async def remove_from_library(
     return {"status": f"successfully removed {uri} from {user_id}'s library"}
 
 
-@musiql_api_router.get("/musiql/sample/{uri}")
+@musiql_api_router.get("/sample/{uri}")
 async def sample_song(
     uri: str,
     session_maker: sessionmaker = Depends(get_session),
@@ -391,7 +392,7 @@ async def sample_song(
                 "title": rec.title,
                 "album": alb.album_name,
                 "artists": [
-                    artist.artist_name
+                    {"uri": artist.uri, "name": artist.artist_name}
                     for record, artist, _ in sample_records
                     if record.uri == rec.uri
                 ],
@@ -403,3 +404,117 @@ async def sample_song(
         ]
 
         return content
+
+
+@musiql_api_router.get("/album/{uri}")
+async def get_album(
+    uri: str,
+    session_maker: sessionmaker = Depends(get_session),
+    user_id: str = Depends(get_current_user),
+):
+    album_stmt = (
+        select(Albums, Artists)
+        .select_from(Albums)
+        .outerjoin(
+            AlbumArtistAssociation, Albums.uri == AlbumArtistAssociation.album_uri
+        )
+        .outerjoin(Artists, AlbumArtistAssociation.artist_uri == Artists.uri)
+        .where(Albums.uri == uri)
+    )
+    tracks_stmt = (
+        select(MusiqlRepository, Artists, UserLirbary)
+        .select_from(MusiqlRepository)
+        .outerjoin(
+            RecordArtistAssociation,
+            MusiqlRepository.uri == RecordArtistAssociation.record_uri,
+        )
+        .outerjoin(Artists, RecordArtistAssociation.artist_uri == Artists.uri)
+        .outerjoin(
+            UserLirbary,
+            (UserLirbary.record_id == MusiqlRepository.uri)
+            & (UserLirbary.user_id == user_id),
+        )
+        .where(MusiqlRepository.album_uri == uri)
+        .order_by(MusiqlRepository.created)
+    )
+    async with session_maker() as session:
+        album_rows = (await session.execute(album_stmt)).all()
+        if not album_rows:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="album not found"
+            )
+        album = album_rows[0][0]
+        album_artists = [
+            {"uri": row[1].uri, "name": row[1].artist_name}
+            for row in album_rows
+            if row[1] is not None
+        ]
+        track_rows = (await session.execute(tracks_stmt)).all()
+
+    seen: list[str] = []
+    return {
+        "title": album.album_name,
+        "artists": album_artists,
+        "preview_url": album.cover_preview_url,
+        "thumbnail_url": album.cover_thumbnail_url,
+        "tracks": [
+            {
+                "uri": rec.uri,
+                "album_uri": uri,
+                "title": rec.title,
+                "album": album.album_name,
+                "artists": [
+                    {"uri": r[1].uri, "name": r[1].artist_name}
+                    for r in track_rows
+                    if r[0].uri == rec.uri and r[1] is not None
+                ],
+                "preview_url": album.cover_preview_url,
+                "thumbnail_url": album.cover_thumbnail_url,
+                "in_library": lib is not None,
+            }
+            for rec, _, lib in track_rows
+            if rec.uri not in seen and not seen.append(rec.uri)
+        ],
+    }
+
+
+@musiql_api_router.get("/artist/{uri}")
+async def get_artist(
+    uri: str,
+    session_maker: sessionmaker = Depends(get_session),
+    user_id: str = Depends(get_current_user),
+):
+    artist_stmt = select(Artists).where(Artists.uri == uri)
+    albums_stmt = (
+        select(Albums)
+        .select_from(AlbumArtistAssociation)
+        .join(Albums, AlbumArtistAssociation.album_uri == Albums.uri)
+        .where(AlbumArtistAssociation.artist_uri == uri)
+        .order_by(Albums.release_date.desc())
+    )
+    async with session_maker() as session:
+        artist = (await session.execute(artist_stmt)).scalars().first()
+        if artist is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="artist not found"
+            )
+        album_rows = (await session.execute(albums_stmt)).scalars().all()
+
+    seen_albums: set[str] = set()
+    return {
+        "uri": artist.uri,
+        "artist_name": artist.artist_name,
+        "albums": [
+            {
+                "uri": alb.uri,
+                "album_name": alb.album_name,
+                "cover_thumbnail_url": alb.cover_thumbnail_url,
+                "cover_preview_url": alb.cover_preview_url,
+                "release_date": alb.release_date.isoformat()
+                if alb.release_date is not None
+                else None,
+            }
+            for alb in album_rows
+            if alb.uri not in seen_albums and not seen_albums.add(alb.uri)
+        ],
+    }
