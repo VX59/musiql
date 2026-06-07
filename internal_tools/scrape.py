@@ -136,8 +136,10 @@ def wait_until_playing(code_holder, uri, timeout=15, poll_interval=0.5):
         data = r.json()
         if data and data.get("is_playing") and data["item"]["uri"] == uri:
             return data.get("progress_ms", 0)
+        
+        item = data.get('item') if data else None
         logger.debug(
-            f"wait_until_playing: is_playing={data.get('is_playing')}, item={data.get('item', {}).get('uri') if data else None}"
+            f"wait_until_playing: is_playing={data.get('is_playing') if data else None}, item={item.get('uri') if item else None}"
         )
         time.sleep(poll_interval)
 
@@ -473,8 +475,8 @@ async def main():
 
                 logger.exception(e)
             finally:
-                shutil.rmtree("music_dump")
-                os.mkdir("music_dump")
+                shutil.rmtree("musiql_dump")
+                os.mkdir("musiql_dump")
 
 if __name__ == "__main__":
     asyncio.run(main())
