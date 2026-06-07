@@ -82,16 +82,16 @@ def refresh_access_token(code_holder):
     s3_api.put_object(json.dumps(code_holder).encode(), CODES_S3_KEY)
 
 
-def retry(code_holder, retry_label: str = ""):
+def retry(code_holder, label: str = ""):
     def decorator(func):
         def wrapper(retries=0):
-            label = f"retrying - {retry_label}" if retries > 0 else retry_label
+            retry_label = f"retrying - {label}" if retries > 0 else label
             if retries >= MAX_RETRIES:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="failed to refresh spotify access token",
                 )
-            with timer_log(label=label):
+            with timer_log(label=retry_label):
                 response = func()
 
             if response.status_code == status.HTTP_401_UNAUTHORIZED:
