@@ -94,7 +94,7 @@ def retry(code_holder, label: str = ""):
 
             if response.status_code == status.HTTP_401_UNAUTHORIZED:
                 refresh_access_token(code_holder)
-                wrapper(retries + 1)
+                return wrapper(retries + 1)
 
             return response
 

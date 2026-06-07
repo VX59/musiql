@@ -101,7 +101,11 @@ def trigger_playback(code_holder, uri: str, retries=0):
             },
         )
 
-    request_trigger_playback()
+    response = request_trigger_playback()
+    if response.status_code not in (200, 204):
+        logger.warning(
+            f"trigger_playback failed: {response.status_code} {response.text}"
+        )
 
 
 def record_virtual_audio(output_file: str):
@@ -131,6 +135,9 @@ def wait_until_playing(code_holder, uri, timeout=15, poll_interval=0.5):
         data = r.json()
         if data and data.get("is_playing") and data["item"]["uri"] == uri:
             return data.get("progress_ms", 0)
+        logger.debug(
+            f"wait_until_playing: is_playing={data.get('is_playing')}, item={data.get('item', {}).get('uri') if data else None}"
+        )
         time.sleep(poll_interval)
 
     return 0
