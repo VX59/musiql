@@ -9,4 +9,4 @@
 	url = https://github.com/VX59/musiql-terraform-aws-iac.git
 [submodule "internal_tools"]
 	path = internal_tools
-	url = https://github.com/VX59/internal_tools.git
+	url = git@github.com:VX59/internal_tools.git
