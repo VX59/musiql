@@ -35,6 +35,7 @@ class JobTypes(str, Enum):
 class JobStatus(str, Enum):
     failed = "failed"
     pending = "pending"
+    retrying = "retrying"
     in_progress = "in progress"
     finished = "finished"
 
