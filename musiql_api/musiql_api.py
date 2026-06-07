@@ -406,6 +406,30 @@ async def sample_song(
         return content
 
 
+class SkipsResponse(BaseModel):
+    uri: str
+    skips: list[float]
+
+
+@musiql_api_router.get("/skips/{uri}", response_model=SkipsResponse)
+async def get_skips(
+    uri: str,
+    session_maker: sessionmaker = Depends(get_session),
+    user_id: str = Depends(get_current_user),
+):
+    stmt = select(MusiqlHistory).where(
+        MusiqlHistory.user_id == user_id,
+        MusiqlHistory.duration_played < 1,
+        MusiqlHistory.uri == uri,
+    )
+
+    async with session_maker() as session:
+        skips: list[MusiqlHistory] = (await session.execute(stmt)).scalars().all()
+        print(skips)
+        response = {"uri": uri, "skips": [skip.duration_played for skip in skips]}
+        return response
+
+
 @musiql_api_router.get("/album/{uri}")
 async def get_album(
     uri: str,
