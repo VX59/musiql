@@ -2,7 +2,7 @@ import requests
 from datetime import datetime
 import os
 import json
-
+import shutil
 from musiql_api.data_models import spotify_item
 from settings import Settings, get_settings
 
@@ -32,6 +32,7 @@ from database.models import (
 from boto3_tools import S3, get_S3
 from tqdm import tqdm
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import update
 from sqlalchemy.future import select
 from sqlalchemy import func
 import asyncio
@@ -196,7 +197,7 @@ async def scrape_records(code_holder, job: UploadJobs):
 
                 result = await session.execute(stmt)
                 reported_record: MusiqlRepository = result.scalar_one_or_none()
-
+                
                 if reported_record is None:
                     raise ValueError(
                         f"no record linked to {JobTypes.correction} uri {job.uri}"
@@ -206,6 +207,19 @@ async def scrape_records(code_holder, job: UploadJobs):
 
         else:
             raise ValueError(f"unsupported job type {job.job_type}")
+
+        if job.status == JobStatus.failed:
+            async with session_maker() as session:
+                stmt = (
+                    update(UploadJobs)
+                    .where(
+                        UploadJobs.uri == job.uri,
+                    )
+                    .values(status=JobStatus.retrying)
+                )
+
+                await session.execute(stmt)
+                await session.commit()
 
         obj_key = f"musiql_dump/{internal_record_uri}.wav"
 
@@ -399,8 +413,7 @@ async def scrape_records(code_holder, job: UploadJobs):
                 job.progress += 1
 
             if job.progress == job.subtasks:
-                job.status = "finished"
-
+                job.status = JobStatus.finished 
             session.add(job)
 
             await session.commit()
@@ -459,7 +472,9 @@ async def main():
                     await session.commit()
 
                 logger.exception(e)
-
+            finally:
+                shutil.rmtree("music_dump")
+                os.mkdir("music_dump")
 
 if __name__ == "__main__":
     asyncio.run(main())
