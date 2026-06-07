@@ -85,8 +85,7 @@ def refresh_access_token(code_holder):
 def retry(code_holder, retry_label: str = ""):
     def decorator(func):
         def wrapper(retries=0):
-            if retries > 0:
-                label = f"retrying - {label}" if retry_label else "retrying"
+            label = f"retrying - {retry_label}" if retries > 0 else retry_label
             if retries >= MAX_RETRIES:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
