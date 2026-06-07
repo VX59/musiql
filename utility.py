@@ -82,9 +82,11 @@ def refresh_access_token(code_holder):
     s3_api.put_object(json.dumps(code_holder).encode(), CODES_S3_KEY)
 
 
-def retry(code_holder, label: str = "retrying"):
+def retry(code_holder, retry_label: str = ""):
     def decorator(func):
         def wrapper(retries=0):
+            if retries > 0:
+                label = f"retrying - {label}" if retry_label else "retrying"
             if retries >= MAX_RETRIES:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
