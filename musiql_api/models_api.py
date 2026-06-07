@@ -5,6 +5,7 @@ import pickle
 from typing import Optional, List
 from functools import lru_cache
 from boto3_tools import S3, get_S3
+from utility import timer_log
 
 
 class GraphAMP:
@@ -36,19 +37,21 @@ class GraphAMP:
 @lru_cache
 def get_model(model_uri):
     cache_path = f"/tmp/{model_uri}.gamp"
-    if os.path.exists(cache_path):
-        with open(cache_path, "rb") as f:
-            return pickle.loads(f.read())
 
-    s3_service: S3 = get_S3()
-    obj_key = f"recommendation_models/GAMP/{model_uri}.gamp"
-    file_stream = s3_service.pull_obj_stream(obj_key)
-    graph_data = file_stream.read()
+    with timer_log(label="fetch recommendation model"):
+        if os.path.exists(cache_path):
+            with open(cache_path, "rb") as f:
+                return pickle.loads(f.read())
 
-    with open(cache_path, "wb") as f:
-        f.write(graph_data)
+        s3_service: S3 = get_S3()
+        obj_key = f"recommendation_models/GAMP/{model_uri}.gamp"
+        file_stream = s3_service.pull_obj_stream(obj_key)
+        graph_data = file_stream.read()
 
-    return pickle.loads(graph_data)
+        with open(cache_path, "wb") as f:
+            f.write(graph_data)
+
+        return pickle.loads(graph_data)
 
 
 @lru_cache
