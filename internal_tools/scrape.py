@@ -16,7 +16,7 @@ from utility import (
     JobStatus,
     JobTypes,
     make_uri,
-    refresh_access_token,
+    retry,
 )
 from database.db import get_session
 from database.models import (
@@ -45,7 +45,7 @@ session_maker: sessionmaker = get_session()
 
 
 def get_devices(code_holder):
-    @refresh_access_token(code_holder)
+    @retry(code_holder)
     def request_get_devices():
         return requests.get(
             url="https://api.spotify.com/v1/me/player/devices",
@@ -72,7 +72,7 @@ device_id = None
 
 
 def activate_device(code_holder, device_id):
-    @refresh_access_token(code_holder)
+    @retry(code_holder)
     def request_activate_device():
         return requests.put(
             "https://api.spotify.com/v1/me/player",
@@ -87,7 +87,7 @@ def activate_device(code_holder, device_id):
 
 
 def trigger_playback(code_holder, uri: str, retries=0):
-    @refresh_access_token(code_holder)
+    @retry(code_holder)
     def request_trigger_playback():
         return requests.put(
             url="https://api.spotify.com/v1/me/player/play",
@@ -111,7 +111,7 @@ def record_virtual_audio(output_file: str):
 
 
 def wait_until_playing(code_holder, uri, timeout=15, poll_interval=0.5):
-    @refresh_access_token(code_holder)
+    @retry(code_holder)
     def poll():
         return requests.get(
             "https://api.spotify.com/v1/me/player",
