@@ -64,3 +64,45 @@ jobs:
           aws lambda update-function-code \
             --function-name musiql-lambda \
             --image-uri ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:latest
+
+  deploy-dev:
+    needs: lint
+    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: us-east-2
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region us-east-2 \
+          | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com
+
+      - name: Build Docker image
+        run: |
+          docker build -t musiql/container-registry:dev .
+
+      - name: Tag image
+        run: |
+          docker tag musiql/container-registry:dev \
+          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:dev
+
+      - name: Push to ECR
+        run: |
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:dev
+
+      - name: Update Dev Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name musiql-lambda-dev \
+            --image-uri ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com/musiql/container-registry:dev
