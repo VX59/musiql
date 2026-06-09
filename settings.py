@@ -52,25 +52,13 @@ def get_secret():
 
 @lru_cache
 def get_settings() -> Settings:
-    env = os.getenv("ENV", "dev")
+    env = os.getenv("ENV", "localhost")
     print("ENV:", env)
 
-    if env == "production":
+    if env == "production" or env == "dev":
         secret = get_secret()
         if secret is None:
-            print("WARNING: Could not fetch secrets, using dummy defaults")
-            secret = {
-                "db_user": "dummy",
-                "db_name": "dummy",
-                "db_port": "5432",
-                "db_password": "dummy",
-                "db_domain": "dummy",
-                "musiql_api_url": "http://localhost:8000",
-                "jwt_secret_key": "dummy",
-                "spotify_client_id": "dummy",
-                "spotify_client_secret": "dummy",
-                "env": "production",
-            }
+            raise Exception("unable to fetch secrets")
 
         print("DEBUG: passing to Settings:", secret)
         settings = Settings(**secret)
