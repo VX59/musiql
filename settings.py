@@ -55,7 +55,7 @@ def get_settings() -> Settings:
     env = os.getenv("ENV", "localhost")
     print("ENV:", env)
 
-    if env == "production" or env == "dev":
+    if env != "localhost":
         secret = get_secret()
         if secret is None:
             raise Exception("unable to fetch secrets")
@@ -67,5 +67,5 @@ def get_settings() -> Settings:
         return settings
 
     else:
-        print("No secrets loaded because not in production")
+        print("Not deployed")
         return Settings()
