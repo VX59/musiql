@@ -30,7 +30,7 @@ class Settings(BaseSettings):
 
 
 def get_secret():
-    secret_name = "musiql/db-credentials"
+    secret_arn = os.getenv("SECRET_ARN", "musiql/db-credentials")
     region_name = "us-east-2"
 
     try:
@@ -38,10 +38,10 @@ def get_secret():
         client = session.client(
             service_name="secretsmanager",
             region_name=region_name,
-            config=Config(read_timeout=5, connect_timeout=5),  # short timeout
+            config=Config(read_timeout=5, connect_timeout=5),
         )
 
-        resp = client.get_secret_value(SecretId=secret_name)
+        resp = client.get_secret_value(SecretId=secret_arn)
         secret = json.loads(resp["SecretString"])
         print("DEBUG: secret loaded:", secret)
         return secret
@@ -60,11 +60,18 @@ def get_settings() -> Settings:
         if secret is None:
             raise Exception("unable to fetch secrets")
 
-        print("DEBUG: passing to Settings:", secret)
-        settings = Settings(**secret)
-        settings.aws_region = os.getenv("AWS_REGION", "us-east-2")
-        settings.s3_bucket = os.getenv("S3_BUCKET", "musiql-s3-bucket")
-        return settings
+        sensitive_fields = {
+            "db_user",
+            "db_password",
+            "db_domain",
+            "jwt_secret_key",
+            "spotify_client_id",
+            "spotify_client_secret",
+            "musiql_api_url",
+        }
+        sensitive = {k: v for k, v in secret.items() if k in sensitive_fields}
+        print("DEBUG: passing to Settings:", sensitive)
+        return Settings(**sensitive)
 
     else:
         print("Not deployed")
