@@ -226,6 +226,7 @@ async def advanced_search_songs(
                 "album_uri": alb.uri,
                 "title": rec.title,
                 "album": alb.album_name,
+                "duration_ms": rec.duration_ms,
                 "artists": [
                     {"uri": artist.uri, "name": artist.artist_name}
                     for record, artist, _ in records
@@ -391,6 +392,7 @@ async def sample_song(
                 "album_uri": alb.uri,
                 "title": rec.title,
                 "album": alb.album_name,
+                "duration_ms": rec.duration_ms,
                 "artists": [
                     {"uri": artist.uri, "name": artist.artist_name}
                     for record, artist, _ in sample_records
