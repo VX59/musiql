@@ -1,3 +1,4 @@
+import os
 import requests
 import pickle
 
@@ -44,11 +45,13 @@ def save_track(code_holder, record_id, job_uri):
         raise HTTPException(status_code=response.status_code, detail=data["error"])
 
     item_obj: list[spotify_item] = [spotify_item.create_from_dict(data)]
-    outpath = f"add_music_jobs/{job_uri}.dump"
+    s3_key = f"add_music_jobs/{job_uri}.dump"
+    outpath = f"/tmp/{s3_key}"
+    os.makedirs(os.path.dirname(outpath), exist_ok=True)
     with open(outpath, "wb") as f:
         pickle.dump(item_obj, f)
 
-    return outpath, 1
+    return outpath, s3_key, 1
 
 
 def save_album(code_holder, album_id, job_uri):
@@ -92,11 +95,13 @@ def save_album(code_holder, album_id, job_uri):
         for entry in all_items
     ]
 
-    outpath = f"add_music_jobs/{job_uri}.dump"
+    s3_key = f"add_music_jobs/{job_uri}.dump"
+    outpath = f"/tmp/{s3_key}"
+    os.makedirs(os.path.dirname(outpath), exist_ok=True)
     with open(outpath, "wb") as f:
         pickle.dump(items_obj, f)
 
-    return outpath, len(all_items)
+    return outpath, s3_key, len(all_items)
 
 
 def save_playlist(code_holder, playlist_id, job_uri):
@@ -130,12 +135,14 @@ def save_playlist(code_holder, playlist_id, job_uri):
         spotify_item.create_from_dict(entry["item"]) for entry in all_items
     ]
 
-    outpath = f"add_music_jobs/{job_uri}.dump"
+    s3_key = f"add_music_jobs/{job_uri}.dump"
+    outpath = f"/tmp/{s3_key}"
 
+    os.makedirs(os.path.dirname(outpath), exist_ok=True)
     with open(outpath, "wb") as f:
         pickle.dump(items_obj, f)
 
-    return outpath, len(all_items)
+    return outpath, s3_key, len(all_items)
 
 
 upload_job_router = APIRouter()
@@ -308,7 +315,7 @@ async def report_recording(
 
     job_uri = f"job:{make_uri()}"
 
-    out_path, subtasks = save_track(
+    out_path, s3_key, subtasks = save_track(
         code_holder, record_id=external_uri, job_uri=job_uri
     )
 
@@ -346,9 +353,9 @@ async def report_recording(
 
         await session.commit()
 
-    upload_id, parts = s3_api.upload_object_from_path(out_path, out_path)
+    upload_id, parts = s3_api.upload_object_from_path(out_path, s3_key)
     s3_api.commit_multipart_upload(
-        obj_path=out_path, key=out_path, upload_id=upload_id, parts=parts
+        obj_path=out_path, key=s3_key, upload_id=upload_id, parts=parts
     )
 
     return {
@@ -400,17 +407,17 @@ async def add_music(
 
         match payload.source_type:
             case SourceTypes.playlist:
-                out_path, subtasks = save_playlist(
+                out_path, s3_key, subtasks = save_playlist(
                     code_holder,
                     playlist_id=payload.source_uri,
                     job_uri=job_uri,
                 )
             case SourceTypes.album:
-                out_path, subtasks = save_album(
+                out_path, s3_key, subtasks = save_album(
                     code_holder, album_id=payload.source_uri, job_uri=job_uri
                 )
             case SourceTypes.track:
-                out_path, subtasks = save_track(
+                out_path, s3_key, subtasks = save_track(
                     code_holder,
                     record_id=payload.source_uri,
                     job_uri=job_uri,
@@ -437,9 +444,9 @@ async def add_music(
         session.add(job)
         await session.commit()
 
-    upload_id, parts = s3_api.upload_object_from_path(out_path, out_path)
+    upload_id, parts = s3_api.upload_object_from_path(out_path, s3_key)
     s3_api.commit_multipart_upload(
-        obj_path=out_path, key=out_path, upload_id=upload_id, parts=parts
+        obj_path=out_path, key=s3_key, upload_id=upload_id, parts=parts
     )
 
     return {
