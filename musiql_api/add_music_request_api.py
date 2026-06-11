@@ -464,7 +464,6 @@ async def get_jobs(
             select(UploadJobs)
             .where(
                 UploadJobs.requestor == user_id,
-                UploadJobs.job_type == JobTypes.integration,
             )
             .order_by(UploadJobs.dttm.desc())
         )
