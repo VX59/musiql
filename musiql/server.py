@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from musiql_api.musiql_api import musiql_api_router
 from musiql_api.user_management_api import user_management_router
 from musiql_api.add_music_request_api import upload_job_router
+from musiql_api.model_visualization_api import model_visualization_router
 import uvicorn
 
 app = FastAPI()
@@ -16,6 +17,7 @@ if os.path.isdir(_assets_dir):
 app.include_router(musiql_api_router)
 app.include_router(user_management_router)
 app.include_router(upload_job_router)
+app.include_router(model_visualization_router)
 
 
 def main():
