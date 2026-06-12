@@ -1,6 +1,7 @@
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column
 from sqlalchemy import DateTime, func, ForeignKey
 from datetime import datetime, timezone
+from typing import Optional
 
 Base = declarative_base()
 
@@ -133,3 +134,5 @@ class UploadJobs(Base):
     )
     name: Mapped[str] = mapped_column(nullable=True)
     association: Mapped[str] = mapped_column(nullable=True)
+    err_msg: Mapped[Optional[str]] = mapped_column(nullable=True)
+    retry: Mapped[bool] = mapped_column(nullable=False, server_default="false")
